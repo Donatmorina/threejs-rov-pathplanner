@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,7 +8,30 @@
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f0f0; }
         #container { display: flex; width: 100vw; height: 100vh; }
-        #controls-panel { width: 350px; padding: 15px; background-color: #fff; overflow-y: auto; border-right: 1px solid #ccc; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        #controls-panel {
+            width: 350px;
+            padding: 15px;
+            background-color: #fff;
+            overflow-y: auto;
+            border-right: 1px solid #ccc;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            transition: width 0.3s ease, padding 0.3s ease;
+            flex-shrink: 0; /* Prevent panel from shrinking on its own */
+        }
+        #controls-panel.hidden {
+            width: 0;
+            padding: 0 15px; /* Keep padding for the button to be visible */
+            border-right: none;
+            overflow: hidden;
+        }
+        #controls-panel.hidden > :not(#toggleControlsBtn) {
+            display: none;
+        }
+        #toggleControlsBtn {
+            width: 100%;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+        }
         #scene-container { flex-grow: 1; position: relative; }
         canvas { display: block; }
         h3, h4 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
@@ -32,6 +56,7 @@
 <body>
     <div id="container">
         <div id="controls-panel">
+            <button id="toggleControlsBtn">Hide Controls</button>
             <h3>ROV Controls</h3>
             <div class="control-group">
                 <h4>Flight Recorder</h4>
@@ -43,6 +68,14 @@
                     <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
                     <input type="range" id="playbackSpeed" min="0.01" max="2.0" step="0.01" value="0.1" style="width: 100%;">
                     <span id="speedValue" style="font-size: 0.8em; color: #666;">0.1x</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4>ROV Speed</h4>
+                <div style="margin-top: 10px;">
+                    <label for="rovSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Movement Speed:</label>
+                    <input type="range" id="rovSpeed" min="1" max="20" step="1" value="10" style="width: 100%;">
+                    <span id="rovSpeedValue" style="font-size: 0.8em; color: #666;">10.0</span>
                 </div>
             </div>
             <div class="control-group">
@@ -107,6 +140,8 @@
 
                 // --- NEW: Proximity setting for POI inspection ---
                 this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
+                
+                this.rovSpeed = 10.0;
 
                 // --- State Management ---
                 this.state = {
@@ -641,9 +676,12 @@
                     coordsBar: document.getElementById('coords-bar'),
                     playbackSpeed: document.getElementById('playbackSpeed'),
                     speedValue: document.getElementById('speedValue'),
+                    rovSpeed: document.getElementById('rovSpeed'),
+                    rovSpeedValue: document.getElementById('rovSpeedValue'),
                     minimapToggle: document.getElementById('minimap-toggle'),
                     minimapFollow: document.getElementById('minimap-follow'),
                     minimapContainer: document.getElementById('minimap-container'),
+                    toggleControlsBtn: document.getElementById('toggleControlsBtn'),
                 };
 
                 // Button Clicks
@@ -661,11 +699,30 @@
                 this.ui.loadBtn.addEventListener('click', () => this.ui.loadInput.click());
                 this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
                 this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
+                this.ui.rovSpeed.addEventListener('input', (e) => this.handleRovSpeedChange(e.target.value));
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
                 this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
+                this.ui.toggleControlsBtn.addEventListener('click', () => this.handleToggleControls());
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
+
+            handleRovSpeedChange(value) {
+                this.rovSpeed = parseFloat(value);
+                this.ui.rovSpeedValue.textContent = this.rovSpeed.toFixed(1);
+            }
+            
+            handleToggleControls() {
+                const controlsPanel = document.getElementById('controls-panel');
+                controlsPanel.classList.toggle('hidden');
+                const isHidden = controlsPanel.classList.contains('hidden');
+                this.ui.toggleControlsBtn.textContent = isHidden ? 'Show Controls' : 'Hide Controls';
+
+                // Give the CSS transition time to finish before resizing the canvas
+                setTimeout(() => {
+                    this.onWindowResize();
+                }, 300); // 300ms matches the CSS transition time
+            }
 
             handleRecord() {
                 if (!this.state.isRecording) { // Start new recording
@@ -887,38 +944,44 @@
                     this.updatePlayback(deltaTime);
                 }
                 
+                if (this.state.cameraMode === 'FREE') {
+                    this.updateFreeCameraMovement(deltaTime);
+                }
+                
                 this.updateCamera();
                 this.updateCoordinateDisplay();
                 this.updateMinimap();
                 this.renderer.render(this.scene, this.camera);
             }
             
+            updateFreeCameraMovement(deltaTime) {
+                const cameraMoveSpeed = 15.0;
+                
+                // Camera movement
+                const moveDirection = new THREE.Vector3();
+                if (this.keys['ArrowUp'] || this.keys['KeyW']) moveDirection.z = -1;
+                if (this.keys['ArrowDown'] || this.keys['KeyS']) moveDirection.z = 1;
+                if (this.keys['ArrowLeft'] || this.keys['KeyA']) moveDirection.x = -1;
+                if (this.keys['ArrowRight'] || this.keys['KeyD']) moveDirection.x = 1;
+                
+                moveDirection.normalize().applyQuaternion(this.camera.quaternion);
+                this.camera.position.add(moveDirection.multiplyScalar(cameraMoveSpeed * deltaTime));
+
+                if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed * deltaTime;
+                if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed * deltaTime;
+                
+                // Update orbit controls target to follow camera movement
+                this.orbitControls.target.copy(this.camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(this.camera.quaternion));
+            }
+            
             updateROVMovement(deltaTime) {
-                const moveSpeed = 10.0;
-                const turnSpeed = 2.0;
-
-                // If in FREE view mode, move camera instead of ROV
                 if (this.state.cameraMode === 'FREE') {
-                    const cameraMoveSpeed = 15.0;
-                    
-                    // Camera movement
-                    const moveDirection = new THREE.Vector3();
-                    if (this.keys['ArrowUp'] || this.keys['KeyW']) moveDirection.z = -1;
-                    if (this.keys['ArrowDown'] || this.keys['KeyS']) moveDirection.z = 1;
-                    if (this.keys['ArrowLeft'] || this.keys['KeyA']) moveDirection.x = -1;
-                    if (this.keys['ArrowRight'] || this.keys['KeyD']) moveDirection.x = 1;
-                    
-                    moveDirection.normalize().applyQuaternion(this.camera.quaternion);
-                    this.camera.position.add(moveDirection.multiplyScalar(cameraMoveSpeed * deltaTime));
-
-                    if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed * deltaTime;
-                    if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed * deltaTime;
-                    
-                    // Update orbit controls target to follow camera movement
-                    this.orbitControls.target.copy(this.camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(this.camera.quaternion));
-                    
-                    return; // Don't move ROV in FREE mode
+                    // Do not move ROV in FREE mode
+                    return; 
                 }
+
+                const moveSpeed = this.rovSpeed;
+                const turnSpeed = 2.0;
 
                 // Store current position for collision detection
                 const currentPosition = this.rov.position.clone();
@@ -1035,6 +1098,7 @@
                 this.ui.switchViewBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markPoiBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markOnStructureBtn.disabled = isInteracting || isRotatingStructure;
+                this.ui.rovSpeed.disabled = isInteracting || isPlaying || isRotatingStructure;
 
                 this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
                 this.ui.playBtn.textContent = isPlaying ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
@@ -1367,3 +1431,5 @@
     </script>
 </body>
 </html>
+
+
