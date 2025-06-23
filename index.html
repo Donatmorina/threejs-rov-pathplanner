@@ -142,6 +142,8 @@
                 this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
                 
                 this.rovSpeed = 10.0;
+                this.fishArray = [];
+                this.seaweedArray = [];
 
                 // --- State Management ---
                 this.state = {
@@ -213,6 +215,9 @@
 
                 // ROV model (detailed representation)
                 this.createROVModel();
+
+                this.createFish();
+                this.createSeaweed();
 
                 // Camera initial position
                 this.camera.position.set(30, 20, 30);
@@ -620,6 +625,121 @@
                 this.seabedHeight = 0.5; // Maximum height of seabed features
             }
 
+            createSeaweed() {
+                const seaweedCount = 100;
+                for (let i = 0; i < seaweedCount; i++) {
+                    const height = Math.random() * 5 + 2;
+                    const seaweedGeometry = new THREE.CylinderGeometry(0.1, 0.1, height, 8);
+                    const seaweedMaterial = new THREE.MeshStandardMaterial({
+                        color: new THREE.Color(0.2, 0.8, 0.2).multiplyScalar(Math.random() * 0.5 + 0.5),
+                        roughness: 0.8,
+                    });
+                    const seaweed = new THREE.Mesh(seaweedGeometry, seaweedMaterial);
+                    seaweed.position.set(
+                        (Math.random() - 0.5) * 180,
+                        height / 2,
+                        (Math.random() - 0.5) * 180
+                    );
+                    this.scene.add(seaweed);
+                    this.seaweedArray.push({
+                        mesh: seaweed,
+                        swaySpeed: Math.random() * 0.5 + 0.2,
+                        swayAmount: Math.random() * 0.1 + 0.05,
+                        phase: Math.random() * Math.PI * 2,
+                    });
+                }
+            }
+
+            createSingleFish(size, color) {
+                const fishGroup = new THREE.Group();
+
+                // Body
+                const bodyLength = size.x;
+                const bodyHeight = size.y * 2;
+                const bodyWidth = bodyHeight * 0.7; // A bit narrower than tall
+
+                const bodyGeometry = new THREE.SphereGeometry(bodyLength / 2, 16, 8);
+                const bodyMaterial = new THREE.MeshLambertMaterial({ color: color });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                body.scale.set(1, bodyHeight / (bodyLength / 2), bodyWidth / (bodyLength / 2));
+                fishGroup.add(body);
+
+                // Tail Fin (Caudal)
+                const tailShape = new THREE.Shape();
+                const tailWidth = bodyHeight * 2.5;
+                const tailLength = bodyLength * 0.6;
+                tailShape.moveTo(0, 0);
+                tailShape.lineTo(tailLength, tailWidth / 2);
+                tailShape.lineTo(tailLength * 0.8, 0);
+                tailShape.lineTo(tailLength, -tailWidth / 2);
+                const tailGeometry = new THREE.ShapeGeometry(tailShape);
+                const tailMaterial = new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide });
+                const tailFin = new THREE.Mesh(tailGeometry, tailMaterial);
+                tailFin.position.x = -bodyLength / 2;
+                fishGroup.add(tailFin);
+
+                // Dorsal Fin
+                const dorsalFinShape = new THREE.Shape();
+                const dorsalLength = bodyLength * 0.6;
+                const dorsalHeight = bodyHeight * 1.5;
+                dorsalFinShape.moveTo(0, 0);
+                dorsalFinShape.absarc(0, 0, dorsalLength / 2, Math.PI, 0, false);
+                dorsalFinShape.lineTo(dorsalLength / 2, 0);
+                const dorsalFinGeometry = new THREE.ShapeGeometry(dorsalFinShape);
+                const dorsalFin = new THREE.Mesh(dorsalFinGeometry, tailMaterial);
+                dorsalFin.scale.set(1, dorsalHeight / (dorsalLength / 2) , 1);
+                dorsalFin.position.y = bodyHeight;
+                dorsalFin.rotation.y = -Math.PI / 2;
+                fishGroup.add(dorsalFin);
+
+                // Pectoral Fins
+                const pectoralFinGeometry = new THREE.BoxGeometry(bodyLength * 0.2, 0.05, bodyHeight * 1.5);
+                const leftPectoralFin = new THREE.Mesh(pectoralFinGeometry, tailMaterial);
+                leftPectoralFin.position.set(bodyLength * 0.2, 0, bodyWidth);
+                leftPectoralFin.rotation.y = Math.PI / 4;
+                leftPectoralFin.rotation.z = -Math.PI / 8;
+                fishGroup.add(leftPectoralFin);
+                const rightPectoralFin = leftPectoralFin.clone();
+                rightPectoralFin.position.z = -bodyWidth;
+                rightPectoralFin.rotation.y = -Math.PI / 4;
+                rightPectoralFin.rotation.z = Math.PI / 8;
+                fishGroup.add(rightPectoralFin);
+
+                fishGroup.tailFin = tailFin; // Store reference for animation
+
+                return fishGroup;
+            }
+
+            createFish() {
+                const fishTypes = [
+                    { name: 'Cod', count: 5, size: new THREE.Vector3(1.5, 0.25, 0), color: 0x8B4513 },
+                    { name: 'Mackerel', count: 10, size: new THREE.Vector3(1, 0.15, 0), color: 0x4682B4 },
+                    { name: 'Pollock', count: 8, size: new THREE.Vector3(1.2, 0.2, 0), color: 0xC0C0C0 },
+                ];
+
+                fishTypes.forEach(fishType => {
+                    for (let i = 0; i < fishType.count; i++) {
+                        const fishMesh = this.createSingleFish(fishType.size, fishType.color);
+                        
+                        fishMesh.position.set(
+                            (Math.random() - 0.5) * 150,
+                            Math.random() * 20 + 5,
+                            (Math.random() - 0.5) * 150
+                        );
+                        
+                        this.fishArray.push({
+                            mesh: fishMesh,
+                            speed: Math.random() * 2 + 1,
+                            direction: new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.1, Math.random() - 0.5).normalize(),
+                            turnSpeed: Math.random() * 0.05 + 0.01,
+                            swimPhase: Math.random() * Math.PI * 2,
+                        });
+                        
+                        this.scene.add(fishMesh);
+                    }
+                });
+            }
+
             setupControls() {
                 this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
                 this.orbitControls.target.copy(this.rov.position);
@@ -969,6 +1089,7 @@
             animate() {
                 requestAnimationFrame(() => this.animate());
                 const deltaTime = this.clock.getDelta();
+                const elapsedTime = this.clock.getElapsedTime();
 
                 if (!this.state.isPlaying) {
                     this.updateROVMovement(deltaTime);
@@ -983,6 +1104,8 @@
                 this.updateCamera();
                 this.updateCoordinateDisplay();
                 this.updateMinimap();
+                this.updateFish(deltaTime, elapsedTime);
+                this.updateSeaweed(elapsedTime);
                 this.renderer.render(this.scene, this.camera);
             }
             
@@ -1120,6 +1243,48 @@
                     // Free view mode - camera moves independently
                     this.orbitControls.update();
                 }
+            }
+            
+            updateFish(deltaTime, elapsedTime) {
+                this.fishArray.forEach(fish => {
+                    fish.mesh.position.add(fish.direction.clone().multiplyScalar(fish.speed * deltaTime));
+
+                    // Add some random turning
+                    if (Math.random() < 0.05) {
+                         const newDirection = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.2 - 0.1, Math.random() - 0.5).normalize();
+                         fish.direction.lerp(newDirection, 0.1).normalize();
+                    }
+
+                    fish.mesh.lookAt(fish.mesh.position.clone().add(fish.direction));
+                    
+                    // Boundaries
+                    if (fish.mesh.position.x > 100 || fish.mesh.position.x < -100 || fish.mesh.position.z > 100 || fish.mesh.position.z < -100) {
+                        fish.direction.x *= -1;
+                        fish.direction.z *= -1;
+                    }
+                    if (fish.mesh.position.y > 40 || fish.mesh.position.y < 2) {
+                        fish.direction.y *= -1;
+                    }
+
+                    // Swim animation
+                    fish.swimPhase += fish.speed * deltaTime * 5;
+                    fish.mesh.tailFin.rotation.y = Math.sin(fish.swimPhase) * 0.5;
+                });
+            }
+
+            updateSeaweed(elapsedTime) {
+                this.seaweedArray.forEach(seaweed => {
+                    const { mesh, swaySpeed, swayAmount, phase } = seaweed;
+                    mesh.rotation.z = Math.sin(elapsedTime * swaySpeed + phase) * swayAmount;
+                    
+                    const distanceToRov = mesh.position.distanceTo(this.rov.position);
+                    if (distanceToRov < 5) {
+                        const directionToRov = new THREE.Vector3().subVectors(mesh.position, this.rov.position).normalize();
+                        const bendFactor = (5 - distanceToRov) / 5;
+                        mesh.rotation.x = directionToRov.x * bendFactor * 0.5;
+                        mesh.rotation.z += directionToRov.z * bendFactor * 0.5;
+                    }
+                });
             }
 
             updateUI() {
