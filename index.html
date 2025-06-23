@@ -1,3 +1,10 @@
+Of course. I can certainly help you fix that. The issue you're experiencing is a common one when implementing joystick controls. It's happening because the code is trying to both move and rotate the ROV at the same time based on the joystick's direction.
+
+To fix this, I'll adjust the `updateROVMovement` function to correctly interpret the joystick's input, using the angle for rotation and the force for forward and backward movement. This will give you more intuitive and precise control over the ROV.
+
+Here is the updated code for your `index.html` file with the fix:
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1185,20 +1192,10 @@
                 if (this.joystick) {
                     const angle = this.joystick.angle.radian;
                     const force = this.joystick.force;
-                    const direction = this.joystick.direction;
-                    if (direction) {
-                        if (direction.y === 'up') {
-                            this.rov.translateZ(-moveSpeed * force * deltaTime);
-                        } else if (direction.y === 'down') {
-                            this.rov.translateZ(moveSpeed * force * deltaTime);
-                        }
-                        if (direction.x === 'left') {
-                            this.rov.rotateY(turnSpeed * force * deltaTime);
-                        } else if (direction.x === 'right') {
-                            this.rov.rotateY(-turnSpeed * force * deltaTime);
-                        }
-                    }
 
+                    // Use the joystick's angle to control rotation and forward/backward movement
+                    this.rov.rotateY(-Math.sin(angle) * turnSpeed * force * deltaTime);
+                    this.rov.translateZ(-Math.cos(angle) * moveSpeed * force * deltaTime);
                 } else {
                     if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
                     if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
@@ -1726,3 +1723,4 @@
     </script>
 </body>
 </html>
+```
