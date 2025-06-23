@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -808,7 +807,11 @@
                 this.state.isRecording = false;
                 this.state.isPlaying = false;
                 this.path = [];
-                this.pois.forEach(poi => this.scene.remove(poi.mesh));
+                this.pois.forEach(poi => {
+                    if (poi.mesh.parent) {
+                        poi.mesh.parent.remove(poi.mesh);
+                    }
+                });
                 this.pois = [];
                 if (this.pathLine) this.scene.remove(this.pathLine);
                 this.pathLine = null;
@@ -882,7 +885,7 @@
                 const intersects = this.raycaster.intersectObject(this.structure, true); // Intersect children too
                 if (intersects.length > 0) {
                     if (this.state.isMarkingOnStructure) {
-                        this.createPOI(intersects[0].point);
+                        this.createPOI(intersects[0].point, true);
                         this.state.isMarkingOnStructure = false; // Exit mode after successful mark
                     } else if (this.state.isRotatingStructure) {
                         this.interactionData.isDragging = true;
@@ -915,20 +918,36 @@
             }
 
 
-            createPOI(position) {
+            createPOI(position, onStructure = false) {
                 const note = prompt("Enter a note for this POI:", "");
-                if (note !== null) { // User didn't cancel prompt
-                    const poiMesh = new THREE.Mesh(
-                        new THREE.SphereGeometry(0.5),
-                        new THREE.MeshBasicMaterial({ color: 0xffeb3b })
-                    );
-                    poiMesh.position.copy(position);
+                if (note === null) return;
+
+                const poiMesh = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.5),
+                    new THREE.MeshBasicMaterial({ color: 0xffeb3b })
+                );
+
+                const poiData = {
+                    note: note,
+                    mesh: poiMesh,
+                    triggered: false,
+                    onStructure: onStructure
+                };
+
+                if (onStructure) {
+                    this.structure.add(poiMesh);
+                    const localPosition = this.structure.worldToLocal(position.clone());
+                    poiMesh.position.copy(localPosition);
+                    poiData.pos = localPosition; // Store local position
+                } else {
                     this.scene.add(poiMesh);
-                    // **MODIFIED**: Add 'triggered' state for inspection tracking
-                    this.pois.push({ pos: position, note: note, mesh: poiMesh, triggered: false });
-                    this.updateStatus('POI marked.');
-                    this.updateUI();
+                    poiMesh.position.copy(position);
+                    poiData.pos = position; // Store world position
                 }
+
+                this.pois.push(poiData);
+                this.updateStatus('POI marked.');
+                this.updateUI();
             }
 
 
@@ -1024,15 +1043,19 @@
                     const currentPos = this.pathCurve.getPointAt(this.playbackTime);
                     for (let i = 0; i < this.pois.length; i++) {
                         const poi = this.pois[i];
+                        
+                        const poiWorldPos = new THREE.Vector3();
+                        poi.mesh.getWorldPosition(poiWorldPos);
+
                         // Check if POI is close and hasn't been triggered in this playback run
-                        if (!poi.triggered && currentPos.distanceTo(poi.pos) < this.inspectionDistance) {
+                        if (!poi.triggered && currentPos.distanceTo(poiWorldPos) < this.inspectionDistance) {
                             poi.triggered = true; // Mark as triggered for this run
                             this.state.isPlaybackPaused = true; // Pause the playback
                             
                             // Snap ROV to the POI for a clean stop
-                            this.rov.position.copy(poi.pos);
+                            this.rov.position.copy(poiWorldPos);
                             const tangent = this.pathCurve.getTangentAt(this.playbackTime).normalize();
-                            this.rov.lookAt(poi.pos.clone().add(tangent));
+                            this.rov.lookAt(poiWorldPos.clone().add(tangent));
 
                             this.updateStatus(`Paused for inspection at POI ${i}: ${poi.note}`);
                             this.updateUI();
@@ -1130,13 +1153,18 @@
                         this.ui.poiList,
                         `POI ${i}: ${p.note}`,
                         () => {
-                            this.scene.remove(p.mesh);
+                            if (p.mesh.parent) {
+                                p.mesh.parent.remove(p.mesh);
+                            }
                             this.pois.splice(i, 1);
                             this.updateUI();
                         },
                         () => {
                             // Teleport callback
-                            this.rov.position.copy(p.pos);
+                            const poiWorldPos = new THREE.Vector3();
+                            p.mesh.getWorldPosition(poiWorldPos);
+                            this.rov.position.copy(poiWorldPos);
+
                             if (this.state.cameraMode === 'ORBIT') {
                                 this.orbitControls.target.copy(this.rov.position);
                             }
@@ -1262,7 +1290,9 @@
                 
                 // Draw POIs
                 this.pois.forEach(poi => {
-                    const poiPos = worldToMinimap(poi.pos.x, poi.pos.z);
+                    const poiWorldPos = new THREE.Vector3();
+                    poi.mesh.getWorldPosition(poiWorldPos);
+                    const poiPos = worldToMinimap(poiWorldPos.x, poiWorldPos.z);
                     ctx.fillStyle = '#ffeb3b';
                     ctx.beginPath();
                     ctx.arc(poiPos.x, poiPos.y, 4, 0, Math.PI * 2);
@@ -1364,7 +1394,11 @@
             saveData() {
                 const data = {
                     path: this.path.map(p => [p.x, p.y, p.z]),
-                    pois: this.pois.map(p => ({ pos: [p.pos.x, p.pos.y, p.pos.z], note: p.note }))
+                    pois: this.pois.map(p => ({
+                        pos: [p.pos.x, p.pos.y, p.pos.z],
+                        note: p.note,
+                        onStructure: p.onStructure
+                    }))
                 };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const a = document.createElement('a');
@@ -1392,10 +1426,24 @@
                              this.pois = data.pois.map(p => {
                                  const position = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
                                  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({ color: 0xffeb3b }));
-                                 mesh.position.copy(position);
-                                 this.scene.add(mesh);
-                                 // **MODIFIED**: Ensure loaded POIs also have the 'triggered' property
-                                 return { pos: position, note: p.note, mesh: mesh, triggered: false };
+
+                                 const onStructure = p.onStructure || false;
+
+                                 if (onStructure) {
+                                     this.structure.add(mesh);
+                                     mesh.position.copy(position);
+                                 } else {
+                                     this.scene.add(mesh);
+                                     mesh.position.copy(position);
+                                 }
+
+                                 return {
+                                     pos: position,
+                                     note: p.note,
+                                     mesh: mesh,
+                                     triggered: false,
+                                     onStructure: onStructure
+                                 };
                              });
                         }
 
@@ -1431,5 +1479,3 @@
     </script>
 </body>
 </html>
-
-
