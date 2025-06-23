@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROV Path Planner - Stable Core</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f0f0; }
+        #container { display: flex; width: 100vw; height: 100vh; }
+        #controls-panel { width: 350px; padding: 15px; background-color: #fff; overflow-y: auto; border-right: 1px solid #ccc; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        #scene-container { flex-grow: 1; position: relative; }
+        canvas { display: block; }
+        h3, h4 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .control-group { margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
+        button { display: inline-block; padding: 8px 12px; margin: 2px; border: 1px solid #ccc; background-color: #e9e9e9; cursor: pointer; border-radius: 4px; }
+        button:hover { background-color: #ddd; }
+        button:disabled { background-color: #f5f5f5; color: #aaa; cursor: not-allowed; }
+        button.active { background-color: #cceeff; border-color: #99ddff;}
+        .list-container { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; background: #fafafa; border-radius: 4px; }
+        .list-item { display: flex; justify-content: space-between; align-items: center; padding: 4px; border-bottom: 1px solid #eee; font-size: 0.9em; }
+        .list-item:last-child { border-bottom: none; }
+        .del-btn { background: #fdd; border-color: #fbb; padding: 2px 6px; }
+        #status-bar { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; z-index: 10; }
+        #coords-bar { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-family: monospace; z-index: 10; }
+        #minimap-container { position: absolute; top: 10px; left: 10px; width: 200px; height: 200px; background: rgba(0,0,0,0.8); border: 2px solid #ccc; border-radius: 8px; z-index: 10; }
+        #minimap-canvas { width: 100%; height: 100%; border-radius: 6px; }
+        .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
+        .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
+        .minimap-btn:hover { background: rgba(255,255,255,0.3); }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls-panel">
+            <h3>ROV Controls</h3>
+            <div class="control-group">
+                <h4>Flight Recorder</h4>
+                <button id="recordBtn">Record</button>
+                <button id="stopBtn" disabled>Stop</button>
+                <button id="playBtn" disabled>Play</button>
+                <button id="resumeBtn" disabled>Resume Recording</button>
+                <div style="margin-top: 10px;">
+                    <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
+                    <input type="range" id="playbackSpeed" min="0.01" max="2.0" step="0.01" value="0.1" style="width: 100%;">
+                    <span id="speedValue" style="font-size: 0.8em; color: #666;">0.1x</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4>Camera</h4>
+                <button id="switchViewBtn">Switch to POV</button>
+                <button id="freeViewBtn">Free View</button>
+                <p style="font-size:0.8em; color:#666;">Use mouse to orbit/pan/zoom.</p>
+            </div>
+            <div class="control-group">
+                <h4>Structure Controls</h4>
+                <button id="rotateStructureBtn">Rotate Structure</button>
+            </div>
+            <div class="control-group">
+                <h4>Data</h4>
+                <button id="saveBtn" disabled>Save Path</button>
+                <button id="loadBtn">Load Path</button>
+                <button id="clearBtn">Clear All</button>
+                <input type="file" id="loadInput" style="display:none;" accept=".json"/>
+            </div>
+            <div class="control-group">
+                <h4>Waypoints</h4>
+                <div id="waypoint-list" class="list-container">None</div>
+            </div>
+            <div class="control-group">
+                <h4>Points of Interest</h4>
+                <button id="markPoiBtn">Mark at ROV</button>
+                <button id="markOnStructureBtn">Mark on Structure</button>
+                <div id="poi-list" class="list-container">None</div>
+            </div>
+        </div>
+        <div id="scene-container">
+            <div id="status-bar">Ready</div>
+            <div id="coords-bar">X: 0.0, Y: 0.0, Z: 0.0</div>
+            <div id="minimap-container">
+                <canvas id="minimap-canvas"></canvas>
+                <div class="minimap-controls">
+                    <button class="minimap-btn" id="minimap-toggle">Hide</button>
+                    <button class="minimap-btn" id="minimap-follow">Follow</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        class ROVPlanner {
+            constructor() {
+                // --- Basic Setup ---
+                this.sceneContainer = document.getElementById('scene-container');
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, this.sceneContainer.clientWidth / this.sceneContainer.clientHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.clock = new THREE.Clock();
+                this.keys = {};
+                this.raycaster = new THREE.Raycaster();
+                this.mouse = new THREE.Vector2();
+
+                // --- NEW: Proximity setting for POI inspection ---
+                this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
+
+                // --- State Management ---
+                this.state = {
+                    isRecording: false,
+                    isPaused: false,
+                    isPlaying: false,
+                    isPlaybackPaused: false,
+                    cameraMode: 'ORBIT', // 'ORBIT', 'POV', or 'FREE'
+                    isMarkingOnStructure: false,
+                    isRotatingStructure: false,
+                    minimapVisible: true,
+                    minimapFollow: true,
+                };
+                
+                this.interactionData = {
+                    isDragging: false,
+                    previousMouseX: 0,
+                };
+
+                // --- Data ---
+                this.path = [];
+                this.pois = [];
+                this.pathCurve = null;
+                this.pathLine = null;
+                this.playbackTime = 0;
+
+                this.initialize();
+            }
+
+            // --- 1. INITIALIZATION ---
+
+            initialize() {
+                this.setupRenderer();
+                this.setupScene();
+                this.setupControls();
+                this.setupMinimap();
+                this.bindEventListeners();
+                this.updateUI(); // Set initial UI state
+                this.animate();
+            }
+
+            setupRenderer() {
+                this.renderer.setSize(this.sceneContainer.clientWidth, this.sceneContainer.clientHeight);
+                this.renderer.setClearColor(0x334155); // A calm, dark blue
+                this.sceneContainer.appendChild(this.renderer.domElement);
+            }
+
+            setupScene() {
+                // Lighting
+                this.scene.add(new THREE.AmbientLight(0xcccccc, 1.0));
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+                dirLight.position.set(50, 50, 50);
+                this.scene.add(dirLight);
+
+                // Basic ground plane
+                const ground = new THREE.Mesh(
+                    new THREE.PlaneGeometry(200, 200),
+                    new THREE.MeshLambertMaterial({ color: 0x475569 })
+                );
+                ground.rotation.x = -Math.PI / 2;
+                this.scene.add(ground);
+
+                // Create detailed seabed with collision detection
+                this.createSeabed();
+
+                // Subsea Christmas Tree (detailed representation)
+                this.createChristmasTreeModel();
+
+                // ROV model (detailed representation)
+                this.createROVModel();
+
+                // Camera initial position
+                this.camera.position.set(30, 20, 30);
+                this.camera.lookAt(this.rov.position);
+            }
+
+            createROVModel() {
+                // Create a group to hold all ROV components
+                this.rov = new THREE.Group();
+                this.rov.position.set(20, 5, 20);
+                this.scene.add(this.rov);
+
+                // Main body (central frame)
+                const bodyGeometry = new THREE.BoxGeometry(1.2, 0.8, 2.5);
+                const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+                const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                this.rov.add(body);
+
+                // Camera housing (front)
+                const cameraGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8);
+                const cameraMaterial = new THREE.MeshLambertMaterial({ color: 0x0f172a });
+                const cameraHousing = new THREE.Mesh(cameraGeometry, cameraMaterial);
+                cameraHousing.position.set(0, 0, 1.3);
+                cameraHousing.rotation.x = Math.PI / 2;
+                this.rov.add(cameraHousing);
+
+                // Camera lens (front of housing)
+                const lensGeometry = new THREE.CircleGeometry(0.25, 8);
+                const lensMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const lens = new THREE.Mesh(lensGeometry, lensMaterial);
+                lens.position.set(0, 0, 1.6);
+                lens.rotation.x = Math.PI / 2;
+                this.rov.add(lens);
+
+                // Thrusters (4 vertical thrusters)
+                const thrusterGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.4, 8);
+                const thrusterMaterial = new THREE.MeshLambertMaterial({ color: 0x64748b });
+                
+                // Front thrusters
+                const frontLeftThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+                frontLeftThruster.position.set(-0.8, 0.6, 0.8);
+                this.rov.add(frontLeftThruster);
+                
+                const frontRightThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+                frontRightThruster.position.set(0.8, 0.6, 0.8);
+                this.rov.add(frontRightThruster);
+                
+                // Back thrusters
+                const backLeftThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+                backLeftThruster.position.set(-0.8, 0.6, -0.8);
+                this.rov.add(backLeftThruster);
+                
+                const backRightThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+                backRightThruster.position.set(0.8, 0.6, -0.8);
+                this.rov.add(backRightThruster);
+
+                // Horizontal thrusters (for forward/backward movement)
+                const horizontalThrusterGeometry = new THREE.CylinderGeometry(0.12, 0.12, 0.3, 8);
+                const horizontalThrusterMaterial = new THREE.MeshLambertMaterial({ color: 0x475569 });
+                
+                // Forward thrusters
+                const forwardLeftThruster = new THREE.Mesh(horizontalThrusterGeometry, horizontalThrusterMaterial);
+                forwardLeftThruster.position.set(-0.6, -0.4, 1.2);
+                forwardLeftThruster.rotation.x = Math.PI / 2;
+                this.rov.add(forwardLeftThruster);
+                
+                const forwardRightThruster = new THREE.Mesh(horizontalThrusterGeometry, horizontalThrusterMaterial);
+                forwardRightThruster.position.set(0.6, -0.4, 1.2);
+                forwardRightThruster.rotation.x = Math.PI / 2;
+                this.rov.add(forwardRightThruster);
+
+                // Side thrusters (for lateral movement)
+                const sideThrusterGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.25, 8);
+                const sideThrusterMaterial = new THREE.MeshLambertMaterial({ color: 0x64748b });
+                
+                // Left side thruster
+                const leftThruster = new THREE.Mesh(sideThrusterGeometry, sideThrusterMaterial);
+                leftThruster.position.set(-1.0, 0, 0);
+                leftThruster.rotation.z = Math.PI / 2;
+                this.rov.add(leftThruster);
+                
+                // Right side thruster
+                const rightThruster = new THREE.Mesh(sideThrusterGeometry, sideThrusterMaterial);
+                rightThruster.position.set(1.0, 0, 0);
+                rightThruster.rotation.z = Math.PI / 2;
+                this.rov.add(rightThruster);
+
+                // Control electronics box (top)
+                const electronicsGeometry = new THREE.BoxGeometry(0.8, 0.3, 1.0);
+                const electronicsMaterial = new THREE.MeshLambertMaterial({ color: 0x334155 });
+                const electronics = new THREE.Mesh(electronicsGeometry, electronicsMaterial);
+                electronics.position.set(0, 0.6, 0);
+                this.rov.add(electronics);
+
+                // Tether connection point (back)
+                const tetherGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.2, 8);
+                const tetherMaterial = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
+                const tether = new THREE.Mesh(tetherGeometry, tetherMaterial);
+                tether.position.set(0, 0, -1.3);
+                tether.rotation.x = Math.PI / 2;
+                this.rov.add(tether);
+
+                // LED lights (for visibility)
+                const lightGeometry = new THREE.SphereGeometry(0.08, 8, 6);
+                const lightMaterial = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
+                
+                // Front lights
+                const frontLight1 = new THREE.Mesh(lightGeometry, lightMaterial);
+                frontLight1.position.set(-0.4, 0.3, 1.4);
+                this.rov.add(frontLight1);
+                
+                const frontLight2 = new THREE.Mesh(lightGeometry, lightMaterial);
+                frontLight2.position.set(0.4, 0.3, 1.4);
+                this.rov.add(frontLight2);
+
+                // Side lights
+                const sideLight1 = new THREE.Mesh(lightGeometry, lightMaterial);
+                sideLight1.position.set(-1.1, 0, 0.5);
+                this.rov.add(sideLight1);
+                
+                const sideLight2 = new THREE.Mesh(lightGeometry, lightMaterial);
+                sideLight2.position.set(1.1, 0, 0.5);
+                this.rov.add(sideLight2);
+
+                // Add ambient light to the ROV
+                const rovLight = new THREE.PointLight(0x3b82f6, 0.5, 5);
+                rovLight.position.set(0, 0, 1);
+                this.rov.add(rovLight);
+            }
+
+            createChristmasTreeModel() {
+                // Create a group to hold all Christmas tree components
+                this.structure = new THREE.Group();
+                this.structure.position.set(0, 7.5, 0);
+                this.scene.add(this.structure);
+
+                // Main tree body (central structure) - LARGER
+                const treeBodyGeometry = new THREE.CylinderGeometry(2.5, 3.5, 12, 12);
+                const treeBodyMaterial = new THREE.MeshLambertMaterial({ color: 0xfbbf24 });
+                const treeBody = new THREE.Mesh(treeBodyGeometry, treeBodyMaterial);
+                this.structure.add(treeBody);
+
+                // Production wing valve (horizontal valve) - LARGER
+                const wingValveGeometry = new THREE.CylinderGeometry(1.2, 1.2, 4.5, 8);
+                const wingValveMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                const wingValve = new THREE.Mesh(wingValveGeometry, wingValveMaterial);
+                wingValve.position.set(4.0, 0, 0);
+                wingValve.rotation.z = Math.PI / 2;
+                this.structure.add(wingValve);
+
+                // Production wing valve actuator - LARGER
+                const wingActuatorGeometry = new THREE.BoxGeometry(2.0, 1.2, 1.2);
+                const wingActuatorMaterial = new THREE.MeshLambertMaterial({ color: 0xeab308 });
+                const wingActuator = new THREE.Mesh(wingActuatorGeometry, wingActuatorMaterial);
+                wingActuator.position.set(6.0, 0, 0);
+                this.structure.add(wingActuator);
+
+                // Swab valve (vertical valve on top) - LARGER
+                const swabValveGeometry = new THREE.CylinderGeometry(1.0, 1.0, 3, 8);
+                const swabValveMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                const swabValve = new THREE.Mesh(swabValveGeometry, swabValveMaterial);
+                swabValve.position.set(0, 7.5, 0);
+                this.structure.add(swabValve);
+
+                // Swab valve actuator - LARGER
+                const swabActuatorGeometry = new THREE.BoxGeometry(1.6, 1.0, 1.0);
+                const swabActuatorMaterial = new THREE.MeshLambertMaterial({ color: 0xeab308 });
+                const swabActuator = new THREE.Mesh(swabActuatorGeometry, swabActuatorMaterial);
+                swabActuator.position.set(0, 9.5, 0);
+                this.structure.add(swabActuator);
+
+                // Production outlet (flow line connection) - LARGER
+                const outletGeometry = new THREE.CylinderGeometry(0.6, 0.6, 2.5, 8);
+                const outletMaterial = new THREE.MeshLambertMaterial({ color: 0xca8a04 });
+                const outlet = new THREE.Mesh(outletGeometry, outletMaterial);
+                outlet.position.set(7.0, 0, 0);
+                outlet.rotation.z = Math.PI / 2;
+                this.structure.add(outlet);
+
+                // Crossover valve (secondary flow path) - LARGER
+                const crossoverGeometry = new THREE.CylinderGeometry(0.8, 0.8, 3, 8);
+                const crossoverMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                const crossover = new THREE.Mesh(crossoverGeometry, crossoverMaterial);
+                crossover.position.set(-4.0, 0, 0);
+                crossover.rotation.z = Math.PI / 2;
+                this.structure.add(crossover);
+
+                // Crossover actuator - LARGER
+                const crossoverActuatorGeometry = new THREE.BoxGeometry(1.6, 1.0, 1.0);
+                const crossoverActuatorMaterial = new THREE.MeshLambertMaterial({ color: 0xeab308 });
+                const crossoverActuator = new THREE.Mesh(crossoverActuatorGeometry, crossoverActuatorMaterial);
+                crossoverActuator.position.set(-6.0, 0, 0);
+                this.structure.add(crossoverActuator);
+
+                // Control module (electronics housing) - LARGER
+                const controlGeometry = new THREE.BoxGeometry(3.0, 2.0, 1.5);
+                const controlMaterial = new THREE.MeshLambertMaterial({ color: 0xfbbf24 });
+                const controlModule = new THREE.Mesh(controlGeometry, controlMaterial);
+                controlModule.position.set(0, 0, 4.0);
+                this.structure.add(controlModule);
+
+                // Control panel on control module - LARGER
+                const panelGeometry = new THREE.PlaneGeometry(2.8, 1.2);
+                const panelMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+                panel.position.set(0, 0, 4.75);
+                this.structure.add(panel);
+
+                // Pressure gauges - LARGER
+                const gaugeGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.15, 8);
+                const gaugeMaterial = new THREE.MeshLambertMaterial({ color: 0xca8a04 });
+                
+                const gauge1 = new THREE.Mesh(gaugeGeometry, gaugeMaterial);
+                gauge1.position.set(-1.0, 0, 4.8);
+                gauge1.rotation.x = Math.PI / 2;
+                this.structure.add(gauge1);
+                
+                const gauge2 = new THREE.Mesh(gaugeGeometry, gaugeMaterial);
+                gauge2.position.set(1.0, 0, 4.8);
+                gauge2.rotation.x = Math.PI / 2;
+                this.structure.add(gauge2);
+
+                // Wellhead connector (bottom connection) - LARGER
+                const connectorGeometry = new THREE.CylinderGeometry(3.0, 3.8, 3, 12);
+                const connectorMaterial = new THREE.MeshLambertMaterial({ color: 0xeab308 });
+                const connector = new THREE.Mesh(connectorGeometry, connectorMaterial);
+                connector.position.set(0, -7.5, 0);
+                this.structure.add(connector);
+
+                // Connector bolts - LARGER
+                const boltGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.5, 8);
+                const boltMaterial = new THREE.MeshLambertMaterial({ color: 0xca8a04 });
+                
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i / 12) * Math.PI * 2;
+                    const bolt = new THREE.Mesh(boltGeometry, boltMaterial);
+                    bolt.position.set(
+                        Math.cos(angle) * 2.5,
+                        -7.5,
+                        Math.sin(angle) * 2.5
+                    );
+                    this.structure.add(bolt);
+                }
+
+                // Hydraulic lines (control fluid) - LARGER
+                const hydraulicGeometry = new THREE.CylinderGeometry(0.12, 0.12, 8, 8);
+                const hydraulicMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                
+                const hydraulic1 = new THREE.Mesh(hydraulicGeometry, hydraulicMaterial);
+                hydraulic1.position.set(2.5, 0, 4.0);
+                hydraulic1.rotation.x = Math.PI / 2;
+                this.structure.add(hydraulic1);
+                
+                const hydraulic2 = new THREE.Mesh(hydraulicGeometry, hydraulicMaterial);
+                hydraulic2.position.set(-2.5, 0, 4.0);
+                hydraulic2.rotation.x = Math.PI / 2;
+                this.structure.add(hydraulic2);
+
+                // Electrical junction box - LARGER
+                const junctionGeometry = new THREE.BoxGeometry(1.2, 1.0, 0.6);
+                const junctionMaterial = new THREE.MeshLambertMaterial({ color: 0xfbbf24 });
+                const junctionBox = new THREE.Mesh(junctionGeometry, junctionMaterial);
+                junctionBox.position.set(0, 0, -4.0);
+                this.structure.add(junctionBox);
+
+                // Electrical cables - LARGER
+                const cableGeometry = new THREE.CylinderGeometry(0.08, 0.08, 4, 8);
+                const cableMaterial = new THREE.MeshLambertMaterial({ color: 0xca8a04 });
+                
+                const cable1 = new THREE.Mesh(cableGeometry, cableMaterial);
+                cable1.position.set(0.8, 0, -6);
+                cable1.rotation.x = Math.PI / 2;
+                this.structure.add(cable1);
+                
+                const cable2 = new THREE.Mesh(cableGeometry, cableMaterial);
+                cable2.position.set(-0.8, 0, -6);
+                cable2.rotation.x = Math.PI / 2;
+                this.structure.add(cable2);
+
+                // ROV interface panel (for ROV operations) - LARGER
+                const interfaceGeometry = new THREE.PlaneGeometry(1.5, 1.0);
+                const interfaceMaterial = new THREE.MeshLambertMaterial({ color: 0xf59e0b });
+                const interfacePanel = new THREE.Mesh(interfaceGeometry, interfaceMaterial);
+                interfacePanel.position.set(0, 0, -4.5);
+                this.structure.add(interfacePanel);
+
+                // Interface panel details - LARGER
+                const detailGeometry = new THREE.BoxGeometry(0.15, 0.15, 0.08);
+                const detailMaterial = new THREE.MeshLambertMaterial({ color: 0xca8a04 });
+                
+                for (let i = 0; i < 8; i++) {
+                    const detail = new THREE.Mesh(detailGeometry, detailMaterial);
+                    detail.position.set(
+                        (i - 3.5) * 0.4,
+                        0,
+                        -4.58
+                    );
+                    this.structure.add(detail);
+                }
+
+                // Add ambient light to the Christmas tree
+                const treeLight = new THREE.PointLight(0xfbbf24, 0.4, 12);
+                treeLight.position.set(0, 0, 0);
+                this.structure.add(treeLight);
+            }
+
+            createSeabed() {
+                // Create seabed group
+                this.seabed = new THREE.Group();
+                this.scene.add(this.seabed);
+
+                // Main seabed surface with texture-like appearance
+                const seabedGeometry = new THREE.PlaneGeometry(200, 200, 50, 50);
+                const seabedMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x1e3a8a,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                this.seabedSurface = new THREE.Mesh(seabedGeometry, seabedMaterial);
+                this.seabedSurface.rotation.x = -Math.PI / 2;
+                this.seabedSurface.position.y = 0;
+                this.seabed.add(this.seabedSurface);
+
+                // Add seabed texture by creating small bumps and variations
+                const vertices = seabedGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    // Add random height variations to create seabed texture
+                    vertices[i + 1] = Math.random() * 0.3 - 0.15; // Y coordinate (height)
+                }
+                seabedGeometry.attributes.position.needsUpdate = true;
+                seabedGeometry.computeVertexNormals();
+
+                // Add sand ripples and seabed features
+                for (let i = 0; i < 20; i++) {
+                    const rippleGeometry = new THREE.PlaneGeometry(
+                        Math.random() * 10 + 5, 
+                        Math.random() * 10 + 5, 
+                        8, 8
+                    );
+                    const rippleMaterial = new THREE.MeshLambertMaterial({ 
+                        color: 0x1e40af,
+                        transparent: true,
+                        opacity: 0.7
+                    });
+                    const ripple = new THREE.Mesh(rippleGeometry, rippleMaterial);
+                    
+                    // Position ripples randomly on seabed
+                    ripple.position.set(
+                        (Math.random() - 0.5) * 180,
+                        0.01, // Slightly above seabed to avoid z-fighting
+                        (Math.random() - 0.5) * 180
+                    );
+                    ripple.rotation.x = -Math.PI / 2;
+                    ripple.rotation.z = Math.random() * Math.PI * 2;
+                    
+                    // Add height variations to ripples
+                    const rippleVertices = rippleGeometry.attributes.position.array;
+                    for (let j = 0; j < rippleVertices.length; j += 3) {
+                        rippleVertices[j + 1] = Math.random() * 0.2 - 0.1;
+                    }
+                    rippleGeometry.attributes.position.needsUpdate = true;
+                    rippleGeometry.computeVertexNormals();
+                    
+                    this.seabed.add(ripple);
+                }
+
+                // Add some seabed rocks and debris
+                for (let i = 0; i < 15; i++) {
+                    const rockGeometry = new THREE.DodecahedronGeometry(Math.random() * 0.5 + 0.2);
+                    const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x374151 });
+                    const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                    
+                    rock.position.set(
+                        (Math.random() - 0.5) * 180,
+                        0.2,
+                        (Math.random() - 0.5) * 180
+                    );
+                    rock.rotation.set(
+                        Math.random() * Math.PI,
+                        Math.random() * Math.PI,
+                        Math.random() * Math.PI
+                    );
+                    
+                    this.seabed.add(rock);
+                }
+
+                // Add some coral-like structures
+                for (let i = 0; i < 8; i++) {
+                    const coralGeometry = new THREE.ConeGeometry(0.3, Math.random() * 2 + 1, 6);
+                    const coralMaterial = new THREE.MeshLambertMaterial({ color: 0x059669 });
+                    const coral = new THREE.Mesh(coralGeometry, coralMaterial);
+                    
+                    coral.position.set(
+                        (Math.random() - 0.5) * 160,
+                        0.5,
+                        (Math.random() - 0.5) * 160
+                    );
+                    coral.rotation.x = Math.random() * 0.3 - 0.15;
+                    coral.rotation.z = Math.random() * 0.3 - 0.15;
+                    
+                    this.seabed.add(coral);
+                }
+
+                // Store seabed height for collision detection
+                this.seabedHeight = 0.5; // Maximum height of seabed features
+            }
+
+            setupControls() {
+                this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
+                this.orbitControls.target.copy(this.rov.position);
+                this.orbitControls.enableDamping = true;
+            }
+
+            setupMinimap() {
+                this.minimapCanvas = document.getElementById('minimap-canvas');
+                this.minimapCtx = this.minimapCanvas.getContext('2d');
+                
+                // Set canvas size
+                this.minimapCanvas.width = 200;
+                this.minimapCanvas.height = 200;
+                
+                // Minimap settings
+                this.minimapSettings = {
+                    size: 200,
+                    padding: 20,
+                    worldSize: 100, // Size of world to show in minimap
+                    centerX: 0,
+                    centerZ: 0
+                };
+            }
+
+            bindEventListeners() {
+                // Window
+                window.addEventListener('resize', () => this.onWindowResize());
+                window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
+                window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+                
+                // Mouse listeners for interactions
+                this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                window.addEventListener('mouseup', () => this.onMouseUp()); // Use window to catch mouseup event anywhere
+
+
+                // UI Elements
+                this.ui = {
+                    recordBtn: document.getElementById('recordBtn'),
+                    stopBtn: document.getElementById('stopBtn'),
+                    playBtn: document.getElementById('playBtn'),
+                    resumeBtn: document.getElementById('resumeBtn'),
+                    switchViewBtn: document.getElementById('switchViewBtn'),
+                    freeViewBtn: document.getElementById('freeViewBtn'),
+                    rotateStructureBtn: document.getElementById('rotateStructureBtn'),
+                    saveBtn: document.getElementById('saveBtn'),
+                    loadBtn: document.getElementById('loadBtn'),
+                    loadInput: document.getElementById('loadInput'),
+                    clearBtn: document.getElementById('clearBtn'),
+                    markPoiBtn: document.getElementById('markPoiBtn'),
+                    markOnStructureBtn: document.getElementById('markOnStructureBtn'),
+                    waypointList: document.getElementById('waypoint-list'),
+                    poiList: document.getElementById('poi-list'),
+                    statusBar: document.getElementById('status-bar'),
+                    coordsBar: document.getElementById('coords-bar'),
+                    playbackSpeed: document.getElementById('playbackSpeed'),
+                    speedValue: document.getElementById('speedValue'),
+                    minimapToggle: document.getElementById('minimap-toggle'),
+                    minimapFollow: document.getElementById('minimap-follow'),
+                    minimapContainer: document.getElementById('minimap-container'),
+                };
+
+                // Button Clicks
+                this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
+                this.ui.stopBtn.addEventListener('click', () => this.handleStop());
+                this.ui.playBtn.addEventListener('click', () => this.handlePlay());
+                this.ui.resumeBtn.addEventListener('click', () => this.handleResume());
+                this.ui.clearBtn.addEventListener('click', () => this.handleClear());
+                this.ui.switchViewBtn.addEventListener('click', () => this.handleSwitchView());
+                this.ui.freeViewBtn.addEventListener('click', () => this.handleFreeView());
+                this.ui.markPoiBtn.addEventListener('click', () => this.handleMarkPOIAtROV());
+                this.ui.markOnStructureBtn.addEventListener('click', () => this.enterMarkOnStructureMode());
+                this.ui.rotateStructureBtn.addEventListener('click', () => this.toggleRotateMode());
+                this.ui.saveBtn.addEventListener('click', () => this.saveData());
+                this.ui.loadBtn.addEventListener('click', () => this.ui.loadInput.click());
+                this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
+                this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
+                this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
+                this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
+            }
+
+            // --- 2. EVENT HANDLERS & CORE LOGIC ---
+
+            handleRecord() {
+                if (!this.state.isRecording) { // Start new recording
+                    this.path = [this.rov.position.clone()]; // Start with current position
+                    this.state.isRecording = true;
+                    this.state.isPaused = false;
+                    this.updateStatus('Recording path...');
+                } else { // Pause/Resume
+                    this.state.isPaused = !this.state.isPaused;
+                    this.updateStatus(this.state.isPaused ? 'Recording paused.' : 'Recording...');
+                }
+                this.updateUI();
+            }
+
+            handleStop() {
+                this.state.isRecording = false;
+                this.state.isPaused = false;
+                if (this.path.length < 2) {
+                    this.path = [];
+                    this.updateStatus('Path too short, cleared.');
+                } else {
+                    this.updatePathVisuals();
+                    this.updateStatus('Path recorded.');
+                }
+                this.updateUI();
+            }
+            
+            handlePlay() {
+                if (!this.state.isPlaying) {
+                    // This is the start of a new playback session
+                    this.playbackTime = 0;
+                    this.state.isPlaying = true;
+                    this.state.isPlaybackPaused = false;
+                    this.updateStatus('Playing path...');
+                    // **NEW**: Reset the triggered state for all POIs
+                    this.pois.forEach(p => p.triggered = false);
+                } else {
+                    // This toggles pause/resume during an existing playback session
+                    this.state.isPlaybackPaused = !this.state.isPlaybackPaused;
+                    this.updateStatus(this.state.isPlaybackPaused ? 'Playback paused.' : 'Playing...');
+                }
+                this.updateUI();
+            }
+
+            handleResume() {
+                if (!this.pathCurve || this.path.length === 0) {
+                    this.updateStatus('No path to resume from.');
+                    return;
+                }
+
+                // Stop playback if it's running
+                this.state.isPlaying = false;
+                this.state.isPlaybackPaused = false;
+
+                // Get current position from playback or ROV position
+                let currentPosition;
+                if (this.state.isPlaying) {
+                    currentPosition = this.pathCurve.getPointAt(this.playbackTime);
+                } else {
+                    currentPosition = this.rov.position.clone();
+                }
+
+                // Truncate the path to the current position
+                const currentTime = this.playbackTime;
+                const pathIndex = Math.floor(currentTime * (this.path.length - 1));
+                
+                // Keep only the path up to the current position
+                this.path = this.path.slice(0, pathIndex + 1);
+                
+                // Set ROV to the current position
+                this.rov.position.copy(currentPosition);
+                
+                // Start recording from this point
+                this.state.isRecording = true;
+                this.state.isPaused = false;
+                
+                this.updatePathVisuals();
+                this.updateStatus('Resumed recording from current position.');
+                this.updateUI();
+            }
+
+            handleClear() {
+                this.state.isRecording = false;
+                this.state.isPlaying = false;
+                this.path = [];
+                this.pois.forEach(poi => this.scene.remove(poi.mesh));
+                this.pois = [];
+                if (this.pathLine) this.scene.remove(this.pathLine);
+                this.pathLine = null;
+                this.pathCurve = null;
+                this.rov.position.set(20, 5, 20);
+                this.rov.quaternion.set(0,0,0,1);
+                this.updateStatus('Data cleared.');
+                this.updateUI();
+            }
+            
+            handleSwitchView() {
+                // Cycle through camera modes: ORBIT -> POV -> FREE -> ORBIT
+                if (this.state.cameraMode === 'ORBIT') {
+                    this.state.cameraMode = 'POV';
+                    this.orbitControls.enabled = false;
+                } else if (this.state.cameraMode === 'POV') {
+                    this.state.cameraMode = 'FREE';
+                    this.orbitControls.enabled = true;
+                    this.orbitControls.target.set(0, 0, 0);
+                } else {
+                    this.state.cameraMode = 'ORBIT';
+                    this.orbitControls.enabled = true;
+                    this.orbitControls.target.copy(this.rov.position);
+                }
+                
+                this.updateStatus(`Switched to ${this.state.cameraMode} view.`);
+                this.updateUI();
+            }
+
+            handleFreeView() {
+                this.state.cameraMode = 'FREE';
+                this.orbitControls.enabled = true;
+                this.orbitControls.target.set(0, 0, 0); // Set target to origin for free movement
+                this.updateStatus('Free view mode activated. Use mouse to move camera freely.');
+                this.updateUI();
+            }
+
+            handleMarkPOIAtROV() {
+                let position;
+                if (this.state.isPlaying && this.pathCurve) {
+                    position = this.pathCurve.getPointAt(this.playbackTime);
+                } else {
+                    position = this.rov.position.clone();
+                }
+                this.createPOI(position);
+            }
+            
+            toggleRotateMode() {
+                this.state.isRotatingStructure = !this.state.isRotatingStructure;
+                const status = this.state.isRotatingStructure 
+                    ? 'Rotate mode ON. Click and drag the yellow structure.' 
+                    : 'Rotate mode OFF.';
+                this.updateStatus(status);
+                this.updateUI();
+            }
+
+            enterMarkOnStructureMode() {
+                this.state.isMarkingOnStructure = true;
+                this.updateStatus('Click on the yellow structure to mark a POI.');
+                this.updateUI();
+            }
+
+            onMouseDown(event) {
+                if (!this.state.isMarkingOnStructure && !this.state.isRotatingStructure) return;
+                
+                const rect = this.renderer.domElement.getBoundingClientRect();
+                this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                
+                const intersects = this.raycaster.intersectObject(this.structure, true); // Intersect children too
+                if (intersects.length > 0) {
+                    if (this.state.isMarkingOnStructure) {
+                        this.createPOI(intersects[0].point);
+                        this.state.isMarkingOnStructure = false; // Exit mode after successful mark
+                    } else if (this.state.isRotatingStructure) {
+                        this.interactionData.isDragging = true;
+                        this.interactionData.previousMouseX = event.clientX;
+                        this.orbitControls.enabled = false;
+                    }
+                } else {
+                    if (this.state.isMarkingOnStructure) {
+                        this.updateStatus('Missed! Click on the yellow structure.');
+                        this.state.isMarkingOnStructure = false;
+                    }
+                }
+                this.updateUI();
+            }
+
+            onMouseMove(event) {
+                if (!this.interactionData.isDragging || !this.state.isRotatingStructure) return;
+                const deltaX = event.clientX - this.interactionData.previousMouseX;
+                this.structure.rotation.y += deltaX * 0.01; // Sensitivity factor
+                this.interactionData.previousMouseX = event.clientX;
+            }
+
+            onMouseUp() {
+                if (this.interactionData.isDragging) {
+                    this.interactionData.isDragging = false;
+                    if(this.state.cameraMode !== 'POV') { // Re-enable controls if not in POV
+                       this.orbitControls.enabled = true;
+                    }
+                }
+            }
+
+
+            createPOI(position) {
+                const note = prompt("Enter a note for this POI:", "");
+                if (note !== null) { // User didn't cancel prompt
+                    const poiMesh = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.5),
+                        new THREE.MeshBasicMaterial({ color: 0xffeb3b })
+                    );
+                    poiMesh.position.copy(position);
+                    this.scene.add(poiMesh);
+                    // **MODIFIED**: Add 'triggered' state for inspection tracking
+                    this.pois.push({ pos: position, note: note, mesh: poiMesh, triggered: false });
+                    this.updateStatus('POI marked.');
+                    this.updateUI();
+                }
+            }
+
+
+            // --- 3. UPDATES (Animation Loop & UI) ---
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                const deltaTime = this.clock.getDelta();
+
+                if (!this.state.isPlaying) {
+                    this.updateROVMovement(deltaTime);
+                } else {
+                    this.updatePlayback(deltaTime);
+                }
+                
+                this.updateCamera();
+                this.updateCoordinateDisplay();
+                this.updateMinimap();
+                this.renderer.render(this.scene, this.camera);
+            }
+            
+            updateROVMovement(deltaTime) {
+                const moveSpeed = 10.0;
+                const turnSpeed = 2.0;
+
+                // If in FREE view mode, move camera instead of ROV
+                if (this.state.cameraMode === 'FREE') {
+                    const cameraMoveSpeed = 15.0;
+                    
+                    // Camera movement
+                    const moveDirection = new THREE.Vector3();
+                    if (this.keys['ArrowUp'] || this.keys['KeyW']) moveDirection.z = -1;
+                    if (this.keys['ArrowDown'] || this.keys['KeyS']) moveDirection.z = 1;
+                    if (this.keys['ArrowLeft'] || this.keys['KeyA']) moveDirection.x = -1;
+                    if (this.keys['ArrowRight'] || this.keys['KeyD']) moveDirection.x = 1;
+                    
+                    moveDirection.normalize().applyQuaternion(this.camera.quaternion);
+                    this.camera.position.add(moveDirection.multiplyScalar(cameraMoveSpeed * deltaTime));
+
+                    if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed * deltaTime;
+                    if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed * deltaTime;
+                    
+                    // Update orbit controls target to follow camera movement
+                    this.orbitControls.target.copy(this.camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(this.camera.quaternion));
+                    
+                    return; // Don't move ROV in FREE mode
+                }
+
+                // Store current position for collision detection
+                const currentPosition = this.rov.position.clone();
+
+                if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
+                if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
+                if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
+                if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
+                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
+                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+
+                // Collision detection with seabed
+                const rovBottom = this.rov.position.y - 0.5; // ROV bottom position (assuming ROV height is 1 unit)
+                if (rovBottom < this.seabedHeight) {
+                    // ROV is hitting the seabed, prevent further downward movement
+                    this.rov.position.y = this.seabedHeight + 0.5;
+                    
+                    // Optional: Add some visual feedback when hitting seabed
+                    if (this.keys['KeyQ']) {
+                        this.updateStatus('ROV touching seabed');
+                    }
+                }
+
+                // Record path points
+                if (this.state.isRecording && !this.state.isPaused) {
+                    const lastPoint = this.path[this.path.length - 1];
+                    if (this.rov.position.distanceTo(lastPoint) > 1.0) { // Record every 1 unit of distance
+                        this.path.push(this.rov.position.clone());
+                        this.updatePathVisuals(); // Update line as we go
+                    }
+                }
+            }
+
+            updatePlayback(deltaTime) {
+                if (!this.pathCurve) return;
+
+                // --- NEW: POI Interruption Check ---
+                // Only perform this check if playback is active and not paused.
+                if (this.state.isPlaying && !this.state.isPlaybackPaused) {
+                    const currentPos = this.pathCurve.getPointAt(this.playbackTime);
+                    for (let i = 0; i < this.pois.length; i++) {
+                        const poi = this.pois[i];
+                        // Check if POI is close and hasn't been triggered in this playback run
+                        if (!poi.triggered && currentPos.distanceTo(poi.pos) < this.inspectionDistance) {
+                            poi.triggered = true; // Mark as triggered for this run
+                            this.state.isPlaybackPaused = true; // Pause the playback
+                            
+                            // Snap ROV to the POI for a clean stop
+                            this.rov.position.copy(poi.pos);
+                            const tangent = this.pathCurve.getTangentAt(this.playbackTime).normalize();
+                            this.rov.lookAt(poi.pos.clone().add(tangent));
+
+                            this.updateStatus(`Paused for inspection at POI ${i}: ${poi.note}`);
+                            this.updateUI();
+                            return; // Stop processing this frame, the pause is now active
+                        }
+                    }
+                }
+
+                // If playback is paused (either by user or by POI), do not advance time.
+                if (this.state.isPlaybackPaused) return;
+
+                // --- Original Playback Logic ---
+                const speedMultiplier = parseFloat(this.ui.playbackSpeed.value);
+                this.playbackTime += deltaTime * speedMultiplier;
+
+                if (this.playbackTime >= 1) {
+                    this.playbackTime = 1; // Clamp to the end
+                    this.state.isPlaying = false;
+                    this.updateStatus('Playback finished.');
+                    this.updateUI();
+                }
+
+                const pos = this.pathCurve.getPointAt(this.playbackTime);
+                this.rov.position.copy(pos);
+                
+                const tangent = this.pathCurve.getTangentAt(this.playbackTime).normalize();
+                const lookAtPos = pos.clone().add(tangent);
+                this.rov.lookAt(lookAtPos);
+            }
+
+            updateCamera() {
+                if (this.state.cameraMode === 'ORBIT') {
+                    // Orbit controls are enabled by default unless dragging the structure
+                    if(!this.interactionData.isDragging) {
+                       this.orbitControls.target.lerp(this.rov.position, 0.1);
+                    }
+                    this.orbitControls.update();
+                } else if (this.state.cameraMode === 'POV') {
+                    // Orbit controls are already disabled in handleSwitchView
+                    const offset = new THREE.Vector3(0, 1.5, 3); // Behind and above
+                    const cameraPos = this.rov.localToWorld(offset);
+                    this.camera.position.lerp(cameraPos, 0.1);
+                    this.camera.lookAt(this.rov.position);
+                } else if (this.state.cameraMode === 'FREE') {
+                    // Free view mode - camera moves independently
+                    this.orbitControls.update();
+                }
+            }
+
+            updateUI() {
+                const { isRecording, isPlaying, isPlaybackPaused, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow } = this.state;
+                const hasPath = this.path.length > 1;
+
+                const isInteracting = isMarkingOnStructure || this.interactionData.isDragging;
+
+                this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure;
+                this.ui.stopBtn.disabled = isInteracting || !isRecording || isRotatingStructure;
+                this.ui.playBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
+                this.ui.resumeBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
+                this.ui.saveBtn.disabled = isInteracting || !(hasPath || this.pois.length > 0) || isRotatingStructure;
+                this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
+                this.ui.clearBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
+                this.ui.switchViewBtn.disabled = isInteracting || isRotatingStructure;
+                this.ui.markPoiBtn.disabled = isInteracting || isRotatingStructure;
+                this.ui.markOnStructureBtn.disabled = isInteracting || isRotatingStructure;
+
+                this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
+                this.ui.playBtn.textContent = isPlaying ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
+                this.ui.switchViewBtn.textContent = cameraMode === 'ORBIT' ? 'Switch to POV' : cameraMode === 'POV' ? 'Switch to Free' : 'Switch to Orbit';
+                this.ui.freeViewBtn.classList.toggle('active', cameraMode === 'FREE');
+                this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
+                
+                // Minimap controls
+                this.ui.minimapContainer.style.display = minimapVisible ? 'block' : 'none';
+                this.ui.minimapToggle.textContent = minimapVisible ? 'Hide' : 'Show';
+                this.ui.minimapFollow.textContent = minimapFollow ? 'Fixed' : 'Follow';
+                this.ui.minimapFollow.classList.toggle('active', minimapFollow);
+                
+                // Waypoint List
+                this.ui.waypointList.innerHTML = '';
+                if(this.path.length === 0) { this.ui.waypointList.innerHTML = 'None'; }
+                else {
+                    this.path.forEach((p, i) => this.addListItem(this.ui.waypointList, `WP ${i}: (${(p.x * 100).toFixed(2)} cm, ${(p.y * 100).toFixed(2)} cm, ${(p.z * 100).toFixed(2)} cm)`, () => {
+                        this.path.splice(i, 1);
+                        this.updatePathVisuals();
+                    }));
+                }
+                
+                // POI List
+                this.ui.poiList.innerHTML = '';
+                if(this.pois.length === 0) { this.ui.poiList.innerHTML = 'None'; }
+                else {
+                    this.pois.forEach((p, i) => this.addListItem(
+                        this.ui.poiList,
+                        `POI ${i}: ${p.note}`,
+                        () => {
+                            this.scene.remove(p.mesh);
+                            this.pois.splice(i, 1);
+                            this.updateUI();
+                        },
+                        () => {
+                            // Teleport callback
+                            this.rov.position.copy(p.pos);
+                            if (this.state.cameraMode === 'ORBIT') {
+                                this.orbitControls.target.copy(this.rov.position);
+                            }
+                            this.updateStatus(`Teleported to POI ${i}`);
+                            this.updateCoordinateDisplay();
+                        }
+                    ));
+                }
+            }
+            
+            updatePathVisuals() {
+                if (this.pathLine) {
+                    this.scene.remove(this.pathLine);
+                }
+                this.pathCurve = null; // Clear old curve
+                if (this.path.length < 2) {
+                    this.updateUI(); // Update button states
+                    return;
+                }
+
+                this.pathCurve = new THREE.CatmullRomCurve3(this.path);
+                const points = this.pathCurve.getPoints(50);
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+                this.pathLine = new THREE.Line(geometry, material);
+                this.scene.add(this.pathLine);
+                this.updateUI();
+            }
+
+            updateStatus(message) {
+                this.ui.statusBar.textContent = message;
+            }
+
+            updateCoordinateDisplay() {
+                let position;
+                if (this.state.cameraMode === 'FREE') {
+                    position = this.camera.position;
+                } else {
+                    position = this.rov.position;
+                }
+                const { x, y, z } = position;
+                this.ui.coordsBar.textContent = `X: ${(x * 100).toFixed(2)} cm, Y: ${(y * 100).toFixed(2)} cm, Z: ${(z * 100).toFixed(2)} cm`;
+            }
+
+            updateMinimap() {
+                if (!this.state.minimapVisible) return;
+                
+                const ctx = this.minimapCtx;
+                const { size, padding, worldSize } = this.minimapSettings;
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, size, size);
+                
+                // Calculate center position for minimap
+                let centerX, centerZ;
+                if (this.state.minimapFollow) {
+                    // Follow ROV or camera position
+                    const targetPos = this.state.cameraMode === 'FREE' ? this.camera.position : this.rov.position;
+                    centerX = targetPos.x;
+                    centerZ = targetPos.z;
+                } else {
+                    // Fixed center
+                    centerX = 0;
+                    centerZ = 0;
+                }
+                
+                const scale = (size - 2 * padding) / worldSize;
+                const offsetX = size / 2 - centerX * scale;
+                const offsetZ = size / 2 - centerZ * scale;
+                
+                // Helper function to convert world coordinates to minimap coordinates
+                const worldToMinimap = (x, z) => ({
+                    x: x * scale + offsetX,
+                    y: z * scale + offsetZ
+                });
+                
+                // Draw background grid
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.lineWidth = 1;
+                for (let i = -50; i <= 50; i += 10) {
+                    const pos1 = worldToMinimap(i, -50);
+                    const pos2 = worldToMinimap(i, 50);
+                    ctx.beginPath();
+                    ctx.moveTo(pos1.x, pos1.y);
+                    ctx.lineTo(pos2.x, pos2.y);
+                    ctx.stroke();
+                    
+                    const pos3 = worldToMinimap(-50, i);
+                    const pos4 = worldToMinimap(50, i);
+                    ctx.beginPath();
+                    ctx.moveTo(pos3.x, pos3.y);
+                    ctx.lineTo(pos4.x, pos4.y);
+                    ctx.stroke();
+                }
+                
+                // Draw path
+                if (this.path.length > 1) {
+                    ctx.strokeStyle = '#ffff00';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    
+                    const firstPoint = worldToMinimap(this.path[0].x, this.path[0].z);
+                    ctx.moveTo(firstPoint.x, firstPoint.y);
+                    
+                    for (let i = 1; i < this.path.length; i++) {
+                        const point = worldToMinimap(this.path[i].x, this.path[i].z);
+                        ctx.lineTo(point.x, point.y);
+                    }
+                    ctx.stroke();
+                }
+                
+                // Draw structure (Christmas tree)
+                const structurePos = worldToMinimap(this.structure.position.x, this.structure.position.z);
+                ctx.fillStyle = '#fbbf24';
+                ctx.beginPath();
+                ctx.arc(structurePos.x, structurePos.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw structure outline
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Draw POIs
+                this.pois.forEach(poi => {
+                    const poiPos = worldToMinimap(poi.pos.x, poi.pos.z);
+                    ctx.fillStyle = '#ffeb3b';
+                    ctx.beginPath();
+                    ctx.arc(poiPos.x, poiPos.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                });
+                
+                // Draw ROV
+                const rovPos = worldToMinimap(this.rov.position.x, this.rov.position.z);
+                ctx.fillStyle = '#3b82f6';
+                ctx.beginPath();
+                ctx.arc(rovPos.x, rovPos.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw ROV direction indicator
+                const direction = new THREE.Vector3(0, 0, -1);
+                direction.applyQuaternion(this.rov.quaternion);
+                const directionEnd = worldToMinimap(
+                    this.rov.position.x + direction.x * 3,
+                    this.rov.position.z + direction.z * 3
+                );
+                
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(rovPos.x, rovPos.y);
+                ctx.lineTo(directionEnd.x, directionEnd.y);
+                ctx.stroke();
+                
+                // Draw ROV outline
+                ctx.strokeStyle = '#1e40af';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Draw camera position if in FREE mode
+                if (this.state.cameraMode === 'FREE') {
+                    const cameraPos = worldToMinimap(this.camera.position.x, this.camera.position.z);
+                    ctx.fillStyle = '#ef4444';
+                    ctx.beginPath();
+                    ctx.arc(cameraPos.x, cameraPos.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = '#dc2626';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+                
+                // Draw minimap border
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(0, 0, size, size);
+            }
+
+            // --- 4. UTILITIES & HELPERS ---
+            
+            onWindowResize() {
+                this.camera.aspect = this.sceneContainer.clientWidth / this.sceneContainer.clientHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(this.sceneContainer.clientWidth, this.sceneContainer.clientHeight);
+            }
+            
+            addListItem(listElement, text, deleteCallback, teleportCallback) {
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                
+                const textSpan = document.createElement('span');
+                textSpan.textContent = text;
+                textSpan.style.flexGrow = '1';
+                textSpan.style.marginRight = '5px';
+                
+                if (teleportCallback) {
+                    const tpBtn = document.createElement('button');
+                    tpBtn.textContent = 'Go';
+                    tpBtn.className = 'tp-btn';
+                    tpBtn.style.background = '#4ade80'; // bright green
+                    tpBtn.style.borderColor = '#22c55e';
+                    tpBtn.style.color = '#15803d';
+                    tpBtn.style.fontWeight = 'bold';
+                    tpBtn.style.padding = '2px 6px';
+                    tpBtn.style.marginRight = '8px';
+                    tpBtn.addEventListener('click', teleportCallback);
+                    item.appendChild(tpBtn);
+                }
+                
+                item.appendChild(textSpan);
+                
+                const delBtn = document.createElement('button');
+                delBtn.textContent = 'X';
+                delBtn.className = 'del-btn';
+                delBtn.addEventListener('click', deleteCallback);
+                item.appendChild(delBtn);
+                
+                listElement.appendChild(item);
+            }
+
+            saveData() {
+                const data = {
+                    path: this.path.map(p => [p.x, p.y, p.z]),
+                    pois: this.pois.map(p => ({ pos: [p.pos.x, p.pos.y, p.pos.z], note: p.note }))
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `rov-path-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+                this.updateStatus('Data saved.');
+            }
+
+            loadData(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        this.handleClear(); 
+                        
+                        const data = JSON.parse(e.target.result);
+                        
+                        if (data.path) {
+                           this.path = data.path.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+                        }
+                        if (data.pois) {
+                             this.pois = data.pois.map(p => {
+                                 const position = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
+                                 const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({ color: 0xffeb3b }));
+                                 mesh.position.copy(position);
+                                 this.scene.add(mesh);
+                                 // **MODIFIED**: Ensure loaded POIs also have the 'triggered' property
+                                 return { pos: position, note: p.note, mesh: mesh, triggered: false };
+                             });
+                        }
+
+                        this.updatePathVisuals();
+                        this.updateStatus('Data loaded successfully.');
+                    } catch (error) {
+                        this.updateStatus('Error: Could not load or parse file.');
+                        console.error(error);
+                    }
+                };
+                reader.readAsText(file);
+                this.ui.loadInput.value = ''; // Reset for next load
+            }
+
+            updateSpeedDisplay(value) {
+                this.ui.speedValue.textContent = `${parseFloat(value).toFixed(2)}x`;
+            }
+
+            toggleMinimap() {
+                this.state.minimapVisible = !this.state.minimapVisible;
+                this.updateUI();
+            }
+
+            toggleMinimapFollow() {
+                this.state.minimapFollow = !this.state.minimapFollow;
+                this.updateUI();
+            }
+        }
+
+        // --- GO! ---
+        window.addEventListener('load', () => new ROVPlanner());
+
+    </script>
+</body>
+</html>
