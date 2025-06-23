@@ -62,6 +62,7 @@
                 <button id="recordBtn">Record</button>
                 <button id="stopBtn" disabled>Stop</button>
                 <button id="playBtn" disabled>Play</button>
+                <button id="playBackwardsBtn" disabled>Play Backwards</button>
                 <button id="resumeBtn" disabled>Resume Recording</button>
                 <div style="margin-top: 10px;">
                     <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
@@ -148,6 +149,7 @@
                     isPaused: false,
                     isPlaying: false,
                     isPlaybackPaused: false,
+                    isReversed: false,
                     cameraMode: 'ORBIT', // 'ORBIT', 'POV', or 'FREE'
                     isMarkingOnStructure: false,
                     isRotatingStructure: false,
@@ -659,6 +661,7 @@
                     recordBtn: document.getElementById('recordBtn'),
                     stopBtn: document.getElementById('stopBtn'),
                     playBtn: document.getElementById('playBtn'),
+                    playBackwardsBtn: document.getElementById('playBackwardsBtn'),
                     resumeBtn: document.getElementById('resumeBtn'),
                     switchViewBtn: document.getElementById('switchViewBtn'),
                     freeViewBtn: document.getElementById('freeViewBtn'),
@@ -686,7 +689,8 @@
                 // Button Clicks
                 this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
                 this.ui.stopBtn.addEventListener('click', () => this.handleStop());
-                this.ui.playBtn.addEventListener('click', () => this.handlePlay());
+                this.ui.playBtn.addEventListener('click', () => this.handlePlay(false));
+                this.ui.playBackwardsBtn.addEventListener('click', () => this.handlePlay(true));
                 this.ui.resumeBtn.addEventListener('click', () => this.handleResume());
                 this.ui.clearBtn.addEventListener('click', () => this.handleClear());
                 this.ui.switchViewBtn.addEventListener('click', () => this.handleSwitchView());
@@ -739,6 +743,9 @@
             handleStop() {
                 this.state.isRecording = false;
                 this.state.isPaused = false;
+                this.state.isPlaying = false;
+                this.state.isPlaybackPaused = false;
+                this.state.isReversed = false;
                 if (this.path.length < 2) {
                     this.path = [];
                     this.updateStatus('Path too short, cleared.');
@@ -749,18 +756,24 @@
                 this.updateUI();
             }
             
-            handlePlay() {
+            handlePlay(isReversed = false) {
                 if (!this.state.isPlaying) {
                     // This is the start of a new playback session
-                    this.playbackTime = 0;
+                    this.state.isReversed = isReversed;
+                    this.playbackTime = isReversed ? 1 : 0;
                     this.state.isPlaying = true;
                     this.state.isPlaybackPaused = false;
-                    this.updateStatus('Playing path...');
+                    this.updateStatus(isReversed ? 'Playing path backwards...' : 'Playing path...');
                     // **NEW**: Reset the triggered state for all POIs
                     this.pois.forEach(p => p.triggered = false);
                 } else {
                     // This toggles pause/resume during an existing playback session
-                    this.state.isPlaybackPaused = !this.state.isPlaybackPaused;
+                    if (this.state.isReversed !== isReversed) {
+                        this.state.isReversed = isReversed;
+                        this.state.isPlaybackPaused = false;
+                    } else {
+                        this.state.isPlaybackPaused = !this.state.isPlaybackPaused;
+                    }
                     this.updateStatus(this.state.isPlaybackPaused ? 'Playback paused.' : 'Playing...');
                 }
                 this.updateUI();
@@ -1057,7 +1070,7 @@
                             const tangent = this.pathCurve.getTangentAt(this.playbackTime).normalize();
                             this.rov.lookAt(poiWorldPos.clone().add(tangent));
 
-                            this.updateStatus(`Paused for inspection at POI ${i}: ${poi.note}`);
+                            this.updateStatus(`Paused for inspection at POI ${i}: ${p.note}`);
                             this.updateUI();
                             return; // Stop processing this frame, the pause is now active
                         }
@@ -1069,10 +1082,14 @@
 
                 // --- Original Playback Logic ---
                 const speedMultiplier = parseFloat(this.ui.playbackSpeed.value);
-                this.playbackTime += deltaTime * speedMultiplier;
+                if (this.state.isReversed) {
+                    this.playbackTime -= deltaTime * speedMultiplier;
+                } else {
+                    this.playbackTime += deltaTime * speedMultiplier;
+                }
 
-                if (this.playbackTime >= 1) {
-                    this.playbackTime = 1; // Clamp to the end
+                if (this.playbackTime >= 1 || this.playbackTime <= 0) {
+                    this.playbackTime = THREE.MathUtils.clamp(this.playbackTime, 0, 1);
                     this.state.isPlaying = false;
                     this.updateStatus('Playback finished.');
                     this.updateUI();
@@ -1106,14 +1123,15 @@
             }
 
             updateUI() {
-                const { isRecording, isPlaying, isPlaybackPaused, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow } = this.state;
+                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow } = this.state;
                 const hasPath = this.path.length > 1;
 
                 const isInteracting = isMarkingOnStructure || this.interactionData.isDragging;
 
                 this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure;
-                this.ui.stopBtn.disabled = isInteracting || !isRecording || isRotatingStructure;
+                this.ui.stopBtn.disabled = isInteracting || !isRecording && !isPlaying || isRotatingStructure;
                 this.ui.playBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
+                this.ui.playBackwardsBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
                 this.ui.resumeBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
                 this.ui.saveBtn.disabled = isInteracting || !(hasPath || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
@@ -1124,7 +1142,8 @@
                 this.ui.rovSpeed.disabled = isInteracting || isPlaying || isRotatingStructure;
 
                 this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
-                this.ui.playBtn.textContent = isPlaying ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
+                this.ui.playBtn.textContent = isPlaying && !isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
+                this.ui.playBackwardsBtn.textContent = isPlaying && isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play Backwards';
                 this.ui.switchViewBtn.textContent = cameraMode === 'ORBIT' ? 'Switch to POV' : cameraMode === 'POV' ? 'Switch to Free' : 'Switch to Orbit';
                 this.ui.freeViewBtn.classList.toggle('active', cameraMode === 'FREE');
                 this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
@@ -1481,4 +1500,3 @@
     </script>
 </body>
 </html>
-
