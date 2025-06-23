@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>ROV Path Planner - Stable Core</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f0f0; }
@@ -50,7 +50,22 @@
         .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
+        #joystick-container {
+            position: absolute;
+            bottom: 50px;
+            right: 50px;
+            width: 150px;
+            height: 150px;
+            display: none; /* Hidden by default */
+        }
+        /* Show joystick only on touch devices */
+        @media (pointer: coarse) {
+            #joystick-container {
+                display: block;
+            }
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 </head>
 <body>
     <div id="container">
@@ -116,6 +131,7 @@
                     <button class="minimap-btn" id="minimap-follow">Follow</button>
                 </div>
             </div>
+            <div id="joystick-container"></div>
         </div>
     </div>
 
@@ -137,6 +153,9 @@
                 this.keys = {};
                 this.raycaster = new THREE.Raycaster();
                 this.mouse = new THREE.Vector2();
+
+                // --- NEW: Joystick data ---
+                this.joystick = null;
 
                 // --- NEW: Proximity setting for POI inspection ---
                 this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
@@ -181,6 +200,7 @@
                 this.setupScene();
                 this.setupControls();
                 this.setupMinimap();
+                this.setupJoystick(); // NEW: Setup joystick
                 this.bindEventListeners();
                 this.updateUI(); // Set initial UI state
                 this.animate();
@@ -222,6 +242,27 @@
                 // Camera initial position
                 this.camera.position.set(30, 20, 30);
                 this.camera.lookAt(this.rov.position);
+            }
+            
+            setupJoystick() {
+                const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                if (!isTouchDevice) return;
+
+                const options = {
+                    zone: document.getElementById('joystick-container'),
+                    mode: 'static',
+                    position: { left: '50%', top: '50%' },
+                    color: 'white',
+                    size: 150,
+                };
+
+                const manager = nipplejs.create(options);
+                manager.on('move', (evt, data) => {
+                    this.joystick = data;
+                });
+                manager.on('end', () => {
+                    this.joystick = null;
+                });
             }
 
             createROVModel() {
@@ -1141,12 +1182,32 @@
                 // Store current position for collision detection
                 const currentPosition = this.rov.position.clone();
 
-                if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
-                if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
-                if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
-                if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
-                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
-                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+                if (this.joystick) {
+                    const angle = this.joystick.angle.radian;
+                    const force = this.joystick.force;
+                    const direction = this.joystick.direction;
+                    if (direction) {
+                        if (direction.y === 'up') {
+                            this.rov.translateZ(-moveSpeed * force * deltaTime);
+                        } else if (direction.y === 'down') {
+                            this.rov.translateZ(moveSpeed * force * deltaTime);
+                        }
+                        if (direction.x === 'left') {
+                            this.rov.rotateY(turnSpeed * force * deltaTime);
+                        } else if (direction.x === 'right') {
+                            this.rov.rotateY(-turnSpeed * force * deltaTime);
+                        }
+                    }
+
+                } else {
+                    if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
+                    if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
+                    if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
+                    if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
+                    if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
+                    if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+                }
+
 
                 // Collision detection with seabed
                 const rovBottom = this.rov.position.y - 0.5; // ROV bottom position (assuming ROV height is 1 unit)
