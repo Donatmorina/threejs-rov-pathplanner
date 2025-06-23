@@ -1,3 +1,13 @@
+Of course. I can update the code to differentiate the "Points of Interest" by color.
+
+I have modified the `index.html` file to implement this change. Here is a summary of the updates:
+
+  * **"Mark at ROV" POIs**: These will remain the same color as they are now (yellow).
+  * **"Mark on Structure" POIs**: When you mark a point on the structure, it will now be colored red to distinguish it from the ROV-marked points.
+
+Here is the updated `index.html` file with the color-coded "Points of Interest" feature. You can replace your existing file with this one to see the changes.
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -924,7 +934,7 @@
 
                 const poiMesh = new THREE.Mesh(
                     new THREE.SphereGeometry(0.5),
-                    new THREE.MeshBasicMaterial({ color: 0xffeb3b })
+                    new THREE.MeshBasicMaterial({ color: onStructure ? 0xff0000 : 0xffeb3b })
                 );
 
                 const poiData = {
@@ -1293,7 +1303,7 @@
                     const poiWorldPos = new THREE.Vector3();
                     poi.mesh.getWorldPosition(poiWorldPos);
                     const poiPos = worldToMinimap(poiWorldPos.x, poiWorldPos.z);
-                    ctx.fillStyle = '#ffeb3b';
+                    ctx.fillStyle = poi.onStructure ? '#ff0000' : '#ffeb3b';
                     ctx.beginPath();
                     ctx.arc(poiPos.x, poiPos.y, 4, 0, Math.PI * 2);
                     ctx.fill();
@@ -1425,9 +1435,11 @@
                         if (data.pois) {
                              this.pois = data.pois.map(p => {
                                  const position = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
-                                 const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({ color: 0xffeb3b }));
-
                                  const onStructure = p.onStructure || false;
+                                 const mesh = new THREE.Mesh(
+                                     new THREE.SphereGeometry(0.5),
+                                     new THREE.MeshBasicMaterial({ color: onStructure ? 0xff0000 : 0xffeb3b })
+                                 );
 
                                  if (onStructure) {
                                      this.structure.add(mesh);
@@ -1479,3 +1491,4 @@
     </script>
 </body>
 </html>
+```
