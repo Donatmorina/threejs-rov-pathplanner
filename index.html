@@ -50,52 +50,6 @@
         .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
-        #arrow-controls {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            display: none;
-            grid-template-columns: 50px 50px 50px;
-            grid-template-rows: 50px 50px;
-            gap: 5px;
-        }
-        #arrow-controls button {
-            width: 50px;
-            height: 50px;
-            font-size: 24px;
-            border: 2px solid #ccc;
-            background-color: rgba(255, 255, 255, 0.8);
-        }
-        #arrow-up { grid-column: 2; grid-row: 1; }
-        #arrow-left { grid-column: 1; grid-row: 2; }
-        #arrow-down { grid-column: 2; grid-row: 2; }
-        #arrow-right { grid-column: 3; grid-row: 2; }
-
-        #move-up-down-controls {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            display: none;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        #move-up-down-controls button {
-            width: 100px;
-            height: 50px;
-            font-size: 16px;
-            border: 2px solid #ccc;
-            background-color: rgba(255, 255, 255, 0.8);
-        }
-        
-        @media (pointer: coarse) {
-            #arrow-controls, #move-up-down-controls {
-                display: grid;
-            }
-            #move-up-down-controls {
-                display: flex;
-            }
-        }
     </style>
 </head>
 <body>
@@ -110,6 +64,7 @@
                 <button id="playBtn" disabled>Play</button>
                 <button id="playBackwardsBtn" disabled>Play Backwards</button>
                 <button id="resumeBtn" disabled>Resume Recording</button>
+                <button id="editPathBtn" disabled>Edit Path</button>
                 <div style="margin-top: 10px;">
                     <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
                     <input type="range" id="playbackSpeed" min="0.01" max="2.0" step="0.01" value="0.1" style="width: 100%;">
@@ -162,16 +117,6 @@
                     <button class="minimap-btn" id="minimap-follow">Follow</button>
                 </div>
             </div>
-            <div id="arrow-controls">
-                <button id="arrow-up">↑</button>
-                <button id="arrow-left">←</button>
-                <button id="arrow-down">↓</button>
-                <button id="arrow-right">→</button>
-            </div>
-            <div id="move-up-down-controls">
-                <button id="move-up">Ascend</button>
-                <button id="move-down">Descend</button>
-            </div>
         </div>
     </div>
 
@@ -194,16 +139,6 @@
                 this.raycaster = new THREE.Raycaster();
                 this.mouse = new THREE.Vector2();
 
-                // --- NEW: Arrow button states ---
-                this.arrowStates = {
-                    up: false,
-                    down: false,
-                    left: false,
-                    right: false,
-                    moveUp: false,
-                    moveDown: false
-                };
-
                 // --- NEW: Proximity setting for POI inspection ---
                 this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
                 
@@ -223,11 +158,13 @@
                     isRotatingStructure: false,
                     minimapVisible: true,
                     minimapFollow: true,
+                    isEditingPath: false, // NEW: Path editing state
                 };
                 
                 this.interactionData = {
                     isDragging: false,
                     previousMouseX: 0,
+                    draggedPointIndex: null, // NEW: Index of the path point being dragged
                 };
 
                 // --- Data ---
@@ -849,6 +786,7 @@
                     playBtn: document.getElementById('playBtn'),
                     playBackwardsBtn: document.getElementById('playBackwardsBtn'),
                     resumeBtn: document.getElementById('resumeBtn'),
+                    editPathBtn: document.getElementById('editPathBtn'),
                     switchViewBtn: document.getElementById('switchViewBtn'),
                     freeViewBtn: document.getElementById('freeViewBtn'),
                     rotateStructureBtn: document.getElementById('rotateStructureBtn'),
@@ -878,6 +816,7 @@
                 this.ui.playBtn.addEventListener('click', () => this.handlePlay(false));
                 this.ui.playBackwardsBtn.addEventListener('click', () => this.handlePlay(true));
                 this.ui.resumeBtn.addEventListener('click', () => this.handleResume());
+                this.ui.editPathBtn.addEventListener('click', () => this.toggleEditMode());
                 this.ui.clearBtn.addEventListener('click', () => this.handleClear());
                 this.ui.switchViewBtn.addEventListener('click', () => this.handleSwitchView());
                 this.ui.freeViewBtn.addEventListener('click', () => this.handleFreeView());
@@ -892,27 +831,6 @@
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
                 this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
                 this.ui.toggleControlsBtn.addEventListener('click', () => this.handleToggleControls());
-                
-                // NEW: Arrow button touch events
-                const arrowUp = document.getElementById('arrow-up');
-                const arrowDown = document.getElementById('arrow-down');
-                const arrowLeft = document.getElementById('arrow-left');
-                const arrowRight = document.getElementById('arrow-right');
-                const moveUp = document.getElementById('move-up');
-                const moveDown = document.getElementById('move-down');
-
-                arrowUp.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.up = true; });
-                arrowUp.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.up = false; });
-                arrowDown.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.down = true; });
-                arrowDown.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.down = false; });
-                arrowLeft.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.left = true; });
-                arrowLeft.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.left = false; });
-                arrowRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.right = true; });
-                arrowRight.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.right = false; });
-                moveUp.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.moveUp = true; });
-                moveUp.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.moveUp = false; });
-                moveDown.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.moveDown = true; });
-                moveDown.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.moveDown = false; });
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -1093,39 +1011,74 @@
                 this.updateStatus('Click on the yellow structure to mark a POI.');
                 this.updateUI();
             }
+            
+            toggleEditMode() {
+                this.state.isEditingPath = !this.state.isEditingPath;
+                if (this.state.isEditingPath) {
+                    this.updateStatus('Path editing enabled. Click and drag the path to modify it.');
+                } else {
+                    this.updateStatus('Path editing disabled.');
+                }
+                this.updateUI();
+            }
 
             onMouseDown(event) {
-                if (!this.state.isMarkingOnStructure && !this.state.isRotatingStructure) return;
-                
                 const rect = this.renderer.domElement.getBoundingClientRect();
                 this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
                 this.raycaster.setFromCamera(this.mouse, this.camera);
                 
-                const intersects = this.raycaster.intersectObject(this.structure, true); // Intersect children too
-                if (intersects.length > 0) {
-                    if (this.state.isMarkingOnStructure) {
+                if (this.state.isEditingPath && this.pathLine) {
+                    const intersects = this.raycaster.intersectObject(this.pathLine);
+                    if (intersects.length > 0) {
+                        const closestPointIndex = this.findClosestPointOnPath(intersects[0].point);
+                        if (closestPointIndex !== null) {
+                            this.interactionData.draggedPointIndex = closestPointIndex;
+                            this.orbitControls.enabled = false;
+                            this.updateStatus(`Editing point ${closestPointIndex}. Drag to move.`);
+                        }
+                    }
+                } else if (this.state.isMarkingOnStructure) {
+                    const intersects = this.raycaster.intersectObject(this.structure, true); // Intersect children too
+                    if (intersects.length > 0) {
                         this.createPOI(intersects[0].point, true);
                         this.state.isMarkingOnStructure = false; // Exit mode after successful mark
-                    } else if (this.state.isRotatingStructure) {
+                    } else {
+                        this.updateStatus('Missed! Click on the yellow structure.');
+                        this.state.isMarkingOnStructure = false;
+                    }
+                    this.updateUI();
+                } else if (this.state.isRotatingStructure) {
+                    const intersects = this.raycaster.intersectObject(this.structure, true);
+                    if (intersects.length > 0) {
                         this.interactionData.isDragging = true;
                         this.interactionData.previousMouseX = event.clientX;
                         this.orbitControls.enabled = false;
                     }
-                } else {
-                    if (this.state.isMarkingOnStructure) {
-                        this.updateStatus('Missed! Click on the yellow structure.');
-                        this.state.isMarkingOnStructure = false;
-                    }
                 }
-                this.updateUI();
             }
 
             onMouseMove(event) {
-                if (!this.interactionData.isDragging || !this.state.isRotatingStructure) return;
-                const deltaX = event.clientX - this.interactionData.previousMouseX;
-                this.structure.rotation.y += deltaX * 0.01; // Sensitivity factor
-                this.interactionData.previousMouseX = event.clientX;
+                if (this.interactionData.isDragging) {
+                    const deltaX = event.clientX - this.interactionData.previousMouseX;
+                    this.structure.rotation.y += deltaX * 0.01; // Sensitivity factor
+                    this.interactionData.previousMouseX = event.clientX;
+                } else if (this.state.isEditingPath && this.interactionData.draggedPointIndex !== null) {
+                    const rect = this.renderer.domElement.getBoundingClientRect();
+                    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+                    // Intersect with a plane to get 3D coordinates
+                    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.path[this.interactionData.draggedPointIndex].y);
+                    const intersectPoint = new THREE.Vector3();
+                    this.raycaster.ray.intersectPlane(plane, intersectPoint);
+
+                    if (intersectPoint) {
+                        this.path[this.interactionData.draggedPointIndex].copy(intersectPoint);
+                        this.updatePathVisuals();
+                    }
+                }
             }
 
             onMouseUp() {
@@ -1133,6 +1086,12 @@
                     this.interactionData.isDragging = false;
                     if(this.state.cameraMode !== 'POV') { // Re-enable controls if not in POV
                        this.orbitControls.enabled = true;
+                    }
+                } else if (this.interactionData.draggedPointIndex !== null) {
+                    this.interactionData.draggedPointIndex = null;
+                    this.orbitControls.enabled = true;
+                    if (this.state.isEditingPath) {
+                        this.updateStatus('Path editing enabled.');
                     }
                 }
             }
@@ -1228,12 +1187,12 @@
                 // Store current position for collision detection
                 const currentPosition = this.rov.position.clone();
 
-                if (this.keys['ArrowUp'] || this.keys['KeyW'] || this.arrowStates.up) this.rov.translateZ(-moveSpeed * deltaTime);
-                if (this.keys['ArrowDown'] || this.keys['KeyS'] || this.arrowStates.down) this.rov.translateZ(moveSpeed * deltaTime);
-                if (this.keys['ArrowLeft'] || this.keys['KeyA'] || this.arrowStates.left) this.rov.rotateY(turnSpeed * deltaTime);
-                if (this.keys['ArrowRight'] || this.keys['KeyD'] || this.arrowStates.right) this.rov.rotateY(-turnSpeed * deltaTime);
-                if (this.keys['KeyE'] || this.arrowStates.moveUp) this.rov.position.y += moveSpeed * deltaTime; // Rise
-                if (this.keys['KeyQ'] || this.arrowStates.moveDown) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+                if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
+                if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
+                if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
+                if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
+                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
+                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
 
                 // Collision detection with seabed
                 const rovBottom = this.rov.position.y - 0.5; // ROV bottom position (assuming ROV height is 1 unit)
@@ -1250,7 +1209,7 @@
                 // Record path points
                 if (this.state.isRecording && !this.state.isPaused) {
                     const lastPoint = this.path[this.path.length - 1];
-                    if (this.rov.position.distanceTo(lastPoint) > 1.0) { // Record every 1 unit of distance
+                    if (this.rov.position.distanceTo(lastPoint) > 0.2) { // Record every 0.2 unit of distance
                         this.path.push(this.rov.position.clone());
                         this.updatePathVisuals(); // Update line as we go
                     }
@@ -1375,16 +1334,17 @@
             }
 
             updateUI() {
-                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow } = this.state;
+                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow, isEditingPath } = this.state;
                 const hasPath = this.path.length > 1;
 
                 const isInteracting = isMarkingOnStructure || this.interactionData.isDragging;
 
-                this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure;
+                this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure || isEditingPath;
                 this.ui.stopBtn.disabled = isInteracting || !isRecording && !isPlaying || isRotatingStructure;
-                this.ui.playBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
-                this.ui.playBackwardsBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
-                this.ui.resumeBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure;
+                this.ui.playBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.playBackwardsBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.resumeBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.editPathBtn.disabled = isInteracting || !hasPath || isRecording || isPlaying || isRotatingStructure;
                 this.ui.saveBtn.disabled = isInteracting || !(hasPath || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
                 this.ui.clearBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
@@ -1396,6 +1356,8 @@
                 this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
                 this.ui.playBtn.textContent = isPlaying && !isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
                 this.ui.playBackwardsBtn.textContent = isPlaying && isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play Backwards';
+                this.ui.editPathBtn.textContent = isEditingPath ? 'Stop Editing' : 'Edit Path';
+                this.ui.editPathBtn.classList.toggle('active', isEditingPath);
                 this.ui.switchViewBtn.textContent = cameraMode === 'ORBIT' ? 'Switch to POV' : cameraMode === 'POV' ? 'Switch to Free' : 'Switch to Orbit';
                 this.ui.freeViewBtn.classList.toggle('active', cameraMode === 'FREE');
                 this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
@@ -1660,6 +1622,25 @@
                 item.appendChild(delBtn);
                 
                 listElement.appendChild(item);
+            }
+            
+            findClosestPointOnPath(worldPoint) {
+                let closestPointIndex = null;
+                let minDistance = Infinity;
+
+                this.path.forEach((point, index) => {
+                    const distance = point.distanceTo(worldPoint);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestPointIndex = index;
+                    }
+                });
+
+                // Only consider it a "hit" if the click is reasonably close to a point
+                if (minDistance < 2.0) { // Adjust this threshold as needed
+                    return closestPointIndex;
+                }
+                return null;
             }
 
             saveData() {
