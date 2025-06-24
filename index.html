@@ -70,9 +70,30 @@
         #arrow-left { grid-column: 1; grid-row: 2; }
         #arrow-down { grid-column: 2; grid-row: 2; }
         #arrow-right { grid-column: 3; grid-row: 2; }
+
+        #move-up-down-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #move-up-down-controls button {
+            width: 100px;
+            height: 50px;
+            font-size: 16px;
+            border: 2px solid #ccc;
+            background-color: rgba(255, 255, 255, 0.8);
+        }
+        
         @media (pointer: coarse) {
-            #arrow-controls {
+            #arrow-controls, #move-up-down-controls {
                 display: grid;
+            }
+            #move-up-down-controls {
+                display: flex;
             }
         }
     </style>
@@ -147,6 +168,10 @@
                 <button id="arrow-down">↓</button>
                 <button id="arrow-right">→</button>
             </div>
+            <div id="move-up-down-controls">
+                <button id="move-up">Move Up</button>
+                <button id="move-down">Move Down</button>
+            </div>
         </div>
     </div>
 
@@ -175,6 +200,8 @@
                     down: false,
                     left: false,
                     right: false,
+                    moveUp: false,
+                    moveDown: false
                 };
 
                 // --- NEW: Proximity setting for POI inspection ---
@@ -871,6 +898,8 @@
                 const arrowDown = document.getElementById('arrow-down');
                 const arrowLeft = document.getElementById('arrow-left');
                 const arrowRight = document.getElementById('arrow-right');
+                const moveUp = document.getElementById('move-up');
+                const moveDown = document.getElementById('move-down');
 
                 arrowUp.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.up = true; });
                 arrowUp.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.up = false; });
@@ -880,6 +909,10 @@
                 arrowLeft.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.left = false; });
                 arrowRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.right = true; });
                 arrowRight.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.right = false; });
+                moveUp.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.moveUp = true; });
+                moveUp.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.moveUp = false; });
+                moveDown.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.moveDown = true; });
+                moveDown.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.moveDown = false; });
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -1199,8 +1232,8 @@
                 if (this.keys['ArrowDown'] || this.keys['KeyS'] || this.arrowStates.down) this.rov.translateZ(moveSpeed * deltaTime);
                 if (this.keys['ArrowLeft'] || this.keys['KeyA'] || this.arrowStates.left) this.rov.rotateY(turnSpeed * deltaTime);
                 if (this.keys['ArrowRight'] || this.keys['KeyD'] || this.arrowStates.right) this.rov.rotateY(-turnSpeed * deltaTime);
-                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
-                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+                if (this.keys['KeyE'] || this.arrowStates.moveUp) this.rov.position.y += moveSpeed * deltaTime; // Rise
+                if (this.keys['KeyQ'] || this.arrowStates.moveDown) this.rov.position.y -= moveSpeed * deltaTime; // Fall
 
                 // Collision detection with seabed
                 const rovBottom = this.rov.position.y - 0.5; // ROV bottom position (assuming ROV height is 1 unit)
