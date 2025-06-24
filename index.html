@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>ROV Path Planner - Stable Core</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f0f0f0; }
@@ -50,6 +50,31 @@
         .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
+        #arrow-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: none;
+            grid-template-columns: 50px 50px 50px;
+            grid-template-rows: 50px 50px;
+            gap: 5px;
+        }
+        #arrow-controls button {
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            border: 2px solid #ccc;
+            background-color: rgba(255, 255, 255, 0.8);
+        }
+        #arrow-up { grid-column: 2; grid-row: 1; }
+        #arrow-left { grid-column: 1; grid-row: 2; }
+        #arrow-down { grid-column: 2; grid-row: 2; }
+        #arrow-right { grid-column: 3; grid-row: 2; }
+        @media (pointer: coarse) {
+            #arrow-controls {
+                display: grid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -116,6 +141,12 @@
                     <button class="minimap-btn" id="minimap-follow">Follow</button>
                 </div>
             </div>
+            <div id="arrow-controls">
+                <button id="arrow-up">↑</button>
+                <button id="arrow-left">←</button>
+                <button id="arrow-down">↓</button>
+                <button id="arrow-right">→</button>
+            </div>
         </div>
     </div>
 
@@ -137,6 +168,14 @@
                 this.keys = {};
                 this.raycaster = new THREE.Raycaster();
                 this.mouse = new THREE.Vector2();
+
+                // --- NEW: Arrow button states ---
+                this.arrowStates = {
+                    up: false,
+                    down: false,
+                    left: false,
+                    right: false,
+                };
 
                 // --- NEW: Proximity setting for POI inspection ---
                 this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
@@ -826,6 +865,21 @@
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
                 this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
                 this.ui.toggleControlsBtn.addEventListener('click', () => this.handleToggleControls());
+                
+                // NEW: Arrow button touch events
+                const arrowUp = document.getElementById('arrow-up');
+                const arrowDown = document.getElementById('arrow-down');
+                const arrowLeft = document.getElementById('arrow-left');
+                const arrowRight = document.getElementById('arrow-right');
+
+                arrowUp.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.up = true; });
+                arrowUp.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.up = false; });
+                arrowDown.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.down = true; });
+                arrowDown.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.down = false; });
+                arrowLeft.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.left = true; });
+                arrowLeft.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.left = false; });
+                arrowRight.addEventListener('touchstart', (e) => { e.preventDefault(); this.arrowStates.right = true; });
+                arrowRight.addEventListener('touchend', (e) => { e.preventDefault(); this.arrowStates.right = false; });
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -1141,10 +1195,10 @@
                 // Store current position for collision detection
                 const currentPosition = this.rov.position.clone();
 
-                if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
-                if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
-                if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
-                if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
+                if (this.keys['ArrowUp'] || this.keys['KeyW'] || this.arrowStates.up) this.rov.translateZ(-moveSpeed * deltaTime);
+                if (this.keys['ArrowDown'] || this.keys['KeyS'] || this.arrowStates.down) this.rov.translateZ(moveSpeed * deltaTime);
+                if (this.keys['ArrowLeft'] || this.keys['KeyA'] || this.arrowStates.left) this.rov.rotateY(turnSpeed * deltaTime);
+                if (this.keys['ArrowRight'] || this.keys['KeyD'] || this.arrowStates.right) this.rov.rotateY(-turnSpeed * deltaTime);
                 if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
                 if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
 
