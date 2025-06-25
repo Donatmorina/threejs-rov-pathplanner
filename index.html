@@ -1307,6 +1307,11 @@
                             if (this.interactionData.hoveredHelper === newHovered) {
                                 // Second tap on the same helper: select it
                                 this.selectPoint(pointIndex);
+                                this.interactionData.draggedPointIndex = pointIndex;
+                                this.saveStateForUndo();
+                                this.interactionData.originalDraggedPointPosition = this.path[pointIndex].clone();
+                                this.interactionData.originalPath = this.path.map(p => p.clone());
+                                this.orbitControls.enabled = false;
                             } else {
                                 // First tap: just highlight it
                                 if (this.interactionData.hoveredHelper) {
