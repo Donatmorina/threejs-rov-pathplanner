@@ -34,7 +34,36 @@
         #scene-container { flex-grow: 1; position: relative; }
         canvas { display: block; }
         h3, h4 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        .control-group { margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
+        .control-group { margin-bottom: 15px; }
+        .collapsible {
+            background-color: #f1f1f1;
+            cursor: pointer;
+            padding: 10px;
+            width: 100%;
+            border: none;
+            text-align: left;
+            outline: none;
+            font-size: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        .collapsible:after {
+            content: '\002B';
+            color: #777;
+            font-weight: bold;
+            float: right;
+            margin-left: 5px;
+        }
+        .collapsible.active:after {
+            content: "\2212";
+        }
+        .collapsible-content {
+            padding: 15px;
+            display: none;
+            overflow: hidden;
+            background-color: white;
+            border: 1px solid #eee;
+            border-top: none;
+        }
         button { display: inline-block; padding: 8px 12px; margin: 2px; border: 1px solid #ccc; background-color: #e9e9e9; cursor: pointer; border-radius: 4px; }
         button:hover { background-color: #ddd; }
         button:disabled { background-color: #f5f5f5; color: #aaa; cursor: not-allowed; }
@@ -42,6 +71,7 @@
         .list-container { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 5px; background: #fafafa; border-radius: 4px; }
         .list-item { display: flex; justify-content: space-between; align-items: center; padding: 4px; border-bottom: 1px solid #eee; font-size: 0.9em; }
         .list-item:last-child { border-bottom: none; }
+        .list-item.highlighted { background-color: #e0f7fa; }
         .del-btn { background: #fdd; border-color: #fbb; padding: 2px 6px; }
         #status-bar { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; z-index: 10; }
         #coords-bar { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-family: monospace; z-index: 10; }
@@ -63,6 +93,9 @@
             grid-template-columns: 1fr 1fr 1fr;
             grid-template-rows: 1fr 1fr 1fr;
             gap: 5px;
+        }
+        #mobile-controls.visible {
+            display: grid;
         }
         .mobile-btn {
             background: rgba(0,0,0,0.5);
@@ -112,66 +145,82 @@
             <button id="toggleControlsBtn">Menu</button>
             <h3>ROV Controls</h3>
             <div class="control-group">
-                <h4>Flight Recorder</h4>
-                <button id="recordBtn">Record</button>
-                <button id="stopBtn" disabled>Stop</button>
-                <button id="playBtn" disabled>Play</button>
-                <button id="playBackwardsBtn" disabled>Play Backwards</button>
-                <button id="resumeBtn" disabled>Resume Recording</button>
-                <button id="editPathBtn" disabled>Edit Path</button>
-                <div style="margin-top: 10px;">
-                    <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
-                    <input type="range" id="playbackSpeed" min="0.01" max="2.0" step="0.01" value="0.1" style="width: 100%;">
-                    <span id="speedValue" style="font-size: 0.8em; color: #666;">0.1x</span>
-                </div>
-            </div>
-            <div class="control-group">
-                <h4>ROV Speed</h4>
-                <div style="margin-top: 10px;">
-                    <label for="rovSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Movement Speed:</label>
-                    <input type="range" id="rovSpeed" min="1" max="20" step="1" value="10" style="width: 100%;">
-                    <span id="rovSpeedValue" style="font-size: 0.8em; color: #666;">10.0</span>
-                </div>
-            </div>
-            <div class="control-group">
-                <h4>Camera</h4>
-                <button id="switchViewBtn">Switch to POV</button>
-                <button id="freeViewBtn">Free View</button>
-                <p style="font-size:0.8em; color:#666;">Use mouse to orbit/pan/zoom.</p>
-            </div>
-            <div class="control-group">
-                <h4>Structure Controls</h4>
-                <button id="rotateStructureBtn">Rotate Structure</button>
-            </div>
-            <div class="control-group">
-                <h4>Data</h4>
-                <button id="undoBtn" disabled>Undo</button>
-                <button id="saveBtn" disabled>Save Path</button>
-                <button id="loadBtn">Load Path</button>
-                <button id="clearBtn">Clear All</button>
-                <input type="file" id="loadInput" style="display:none;" accept=".json"/>
-            </div>
-            <div class="control-group">
-                <h4>Waypoints</h4>
-                <button id="deleteSelectedWaypointsBtn" disabled>Delete Selected</button>
-                <div id="waypoint-list" class="list-container">None</div>
-                <div id="proportional-edit-controls" style="display:none; margin-top: 10px;">
-                    <div class="edit-mode-controls" style="margin-top: 10px; margin-bottom: 10px;">
-                        <span style="font-size: 0.9em; margin-right: 5px;">Move Axis:</span>
-                        <button id="editModeFreeBtn" class="active">Free</button>
-                        <button id="editModeHorizontalBtn">Horizontal</button>
-                        <button id="editModeVerticalBtn">Vertical</button>
+                <h4 class="collapsible">Flight Recorder</h4>
+                <div class="collapsible-content">
+                    <button id="recordBtn">Record</button>
+                    <button id="stopBtn" disabled>Stop</button>
+                    <button id="playBtn" disabled>Play</button>
+                    <button id="playBackwardsBtn" disabled>Play Backwards</button>
+                    <button id="resumeBtn" disabled>Resume Recording</button>
+                    <button id="editPathBtn" disabled>Edit Path</button>
+                    <button id="toggleMobileControlsBtn">Toggle Arrows</button>
+                    <div style="margin-top: 10px;">
+                        <label for="playbackSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Playback Speed:</label>
+                        <input type="range" id="playbackSpeed" min="0.01" max="2.0" step="0.01" value="0.1" style="width: 100%;">
+                        <span id="speedValue" style="font-size: 0.8em; color: #666;">0.1x</span>
                     </div>
-                    <label for="editFalloff" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Edit Falloff:</label>
-                    <input type="range" id="editFalloff" min="0" max="50" step="1" value="10" style="width: 100%;">
-                    <span id="editFalloffValue" style="font-size: 0.8em; color: #666;">10.0</span>
                 </div>
             </div>
             <div class="control-group">
-                <h4>Points of Interest</h4>
-                <button id="markPoiBtn">Mark at ROV</button>
-                <button id="markOnStructureBtn">Mark on Structure</button>
-                <div id="poi-list" class="list-container">None</div>
+                <h4 class="collapsible">ROV Speed</h4>
+                <div class="collapsible-content">
+                    <div style="margin-top: 10px;">
+                        <label for="rovSpeed" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Movement Speed:</label>
+                        <input type="range" id="rovSpeed" min="1" max="20" step="1" value="10" style="width: 100%;">
+                        <span id="rovSpeedValue" style="font-size: 0.8em; color: #666;">10.0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4 class="collapsible">Camera</h4>
+                <div class="collapsible-content">
+                    <button id="switchViewBtn">Switch to POV</button>
+                    <button id="freeViewBtn">Free View</button>
+                    <p style="font-size:0.8em; color:#666;">Use mouse to orbit/pan/zoom.</p>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4 class="collapsible">Structure Controls</h4>
+                <div class="collapsible-content">
+                    <button id="rotateStructureBtn">Rotate Structure</button>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4 class="collapsible">Data</h4>
+                <div class="collapsible-content">
+                    <button id="undoBtn" disabled>Undo</button>
+                    <button id="saveBtn" disabled>Save Path</button>
+                    <button id="loadBtn">Load Path</button>
+                    <button id="clearBtn">Clear All</button>
+                    <input type="file" id="loadInput" style="display:none;" accept=".json"/>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4 class="collapsible">Waypoints</h4>
+                <div class="collapsible-content">
+                    <button id="deleteSelectedWaypointsBtn" disabled>Delete Selected</button>
+                    <button id="cycleWaypointsBtn" disabled>Cycle Waypoints</button>
+                    <div id="waypoint-list" class="list-container">None</div>
+                    <div id="proportional-edit-controls" style="display:none; margin-top: 10px;">
+                        <div class="edit-mode-controls" style="margin-top: 10px; margin-bottom: 10px;">
+                            <span style="font-size: 0.9em; margin-right: 5px;">Move Axis:</span>
+                            <button id="editModeFreeBtn" class="active">Free</button>
+                            <button id="editModeHorizontalBtn">Horizontal</button>
+                            <button id="editModeVerticalBtn">Vertical</button>
+                        </div>
+                        <label for="editFalloff" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Edit Falloff:</label>
+                        <input type="range" id="editFalloff" min="0" max="50" step="1" value="10" style="width: 100%;">
+                        <span id="editFalloffValue" style="font-size: 0.8em; color: #666;">10.0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="control-group">
+                <h4 class="collapsible">Points of Interest</h4>
+                <div class="collapsible-content">
+                    <button id="markPoiBtn">Mark at ROV</button>
+                    <button id="markOnStructureBtn">Mark on Structure</button>
+                    <div id="poi-list" class="list-container">None</div>
+                </div>
             </div>
         </div>
         <div id="scene-container">
@@ -231,7 +280,10 @@
                     minimapVisible: true,
                     minimapFollow: true,
                     isEditingPath: false,
+                    isCyclingWaypoints: false,
                     editModeConstraint: 'free',
+                    isEditingWaypoint: false,
+                    mobileControlsVisible: false,
                 };
                 
                 this.interactionData = {
@@ -239,6 +291,7 @@
                     previousMouseX: 0,
                     draggedPointIndex: null,
                     selectedPointIndex: null,
+                    cycleIndex: -1,
                     originalDraggedPointPosition: null,
                     originalPath: [],
                     hoveredHelper: null,
@@ -861,10 +914,10 @@
                 this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
                 this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
                 window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+                this.renderer.domElement.addEventListener('wheel', (e) => this.onMouseWheel(e));
                 this.renderer.domElement.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
                 this.renderer.domElement.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
                 window.addEventListener('touchend', (e) => this.onTouchEnd(e));
-
 
                 this.ui = {
                     recordBtn: document.getElementById('recordBtn'),
@@ -873,6 +926,7 @@
                     playBackwardsBtn: document.getElementById('playBackwardsBtn'),
                     resumeBtn: document.getElementById('resumeBtn'),
                     editPathBtn: document.getElementById('editPathBtn'),
+                    toggleMobileControlsBtn: document.getElementById('toggleMobileControlsBtn'),
                     switchViewBtn: document.getElementById('switchViewBtn'),
                     freeViewBtn: document.getElementById('freeViewBtn'),
                     rotateStructureBtn: document.getElementById('rotateStructureBtn'),
@@ -885,6 +939,7 @@
                     markOnStructureBtn: document.getElementById('markOnStructureBtn'),
                     waypointList: document.getElementById('waypoint-list'),
                     deleteSelectedWaypointsBtn: document.getElementById('deleteSelectedWaypointsBtn'),
+                    cycleWaypointsBtn: document.getElementById('cycleWaypointsBtn'),
                     poiList: document.getElementById('poi-list'),
                     statusBar: document.getElementById('status-bar'),
                     coordsBar: document.getElementById('coords-bar'),
@@ -902,6 +957,7 @@
                     editModeFreeBtn: document.getElementById('editModeFreeBtn'),
                     editModeHorizontalBtn: document.getElementById('editModeHorizontalBtn'),
                     editModeVerticalBtn: document.getElementById('editModeVerticalBtn'),
+                    mobileControls: document.getElementById('mobile-controls'),
                     arrowUp: document.getElementById('arrow-up'),
                     arrowDown: document.getElementById('arrow-down'),
                     arrowLeft: document.getElementById('arrow-left'),
@@ -914,6 +970,7 @@
                 this.ui.playBackwardsBtn.addEventListener('click', () => this.handlePlay(true));
                 this.ui.resumeBtn.addEventListener('click', () => this.handleResume());
                 this.ui.editPathBtn.addEventListener('click', () => this.toggleEditMode());
+                this.ui.toggleMobileControlsBtn.addEventListener('click', () => this.handleToggleMobileControls());
                 this.ui.clearBtn.addEventListener('click', () => this.handleClear());
                 this.ui.switchViewBtn.addEventListener('click', () => this.handleSwitchView());
                 this.ui.freeViewBtn.addEventListener('click', () => this.handleFreeView());
@@ -925,6 +982,7 @@
                 this.ui.loadBtn.addEventListener('click', () => this.ui.loadInput.click());
                 this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
                 this.ui.deleteSelectedWaypointsBtn.addEventListener('click', () => this.handleDeleteSelectedWaypoints());
+                this.ui.cycleWaypointsBtn.addEventListener('click', () => this.toggleCycleWaypointsMode());
                 this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
                 this.ui.rovSpeed.addEventListener('input', (e) => this.handleRovSpeedChange(e.target.value));
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
@@ -943,6 +1001,19 @@
                 bindTouch(this.ui.arrowDown, 'KeyS');
                 bindTouch(this.ui.arrowLeft, 'KeyA');
                 bindTouch(this.ui.arrowRight, 'KeyD');
+
+                const collapsibles = document.getElementsByClassName("collapsible");
+                for (let i = 0; i < collapsibles.length; i++) {
+                    collapsibles[i].addEventListener("click", function() {
+                        this.classList.toggle("active");
+                        var content = this.nextElementSibling;
+                        if (content.style.display === "block") {
+                            content.style.display = "none";
+                        } else {
+                            content.style.display = "block";
+                        }
+                    });
+                }
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -985,6 +1056,12 @@
             handleToggleControls() {
                 const controlsPanel = document.getElementById('controls-panel');
                 controlsPanel.classList.toggle('hidden');
+                setTimeout(() => this.onWindowResize(), 300);
+            }
+            
+            handleToggleMobileControls() {
+                this.state.mobileControlsVisible = !this.state.mobileControlsVisible;
+                this.updateUI(false);
             }
 
             handleRecord() {
@@ -1146,6 +1223,8 @@
                 
                 if (!this.state.isEditingPath) {
                     this.deselectPoint();
+                    this.state.isCyclingWaypoints = false;
+                    this.orbitControls.enableZoom = true;
                 }
 
                 if (this.state.isEditingPath) {
@@ -1155,6 +1234,21 @@
                 }
 
                 this.updateEditHelpers();
+                this.updateUI();
+            }
+
+            toggleCycleWaypointsMode() {
+                this.state.isCyclingWaypoints = !this.state.isCyclingWaypoints;
+                this.orbitControls.enableZoom = !this.state.isCyclingWaypoints;
+
+                if (this.state.isCyclingWaypoints) {
+                    this.interactionData.cycleIndex = this.interactionData.selectedPointIndex !== null ? this.interactionData.selectedPointIndex : 0;
+                    this.selectPoint(this.interactionData.cycleIndex);
+                    this.updateStatus('Waypoint cycling enabled. Use mouse wheel to navigate.');
+                } else {
+                    this.deselectPoint();
+                    this.updateStatus('Waypoint cycling disabled.');
+                }
                 this.updateUI();
             }
 
@@ -1203,7 +1297,7 @@
                 this.mouse.y = -((y - rect.top) / rect.height) * 2 + 1;
                 this.raycaster.setFromCamera(this.mouse, this.camera);
 
-                if (this.state.isEditingPath) {
+                if (this.state.isEditingPath && !this.state.isCyclingWaypoints) {
                     if (this.interactionData.hoveredHelper) {
                         const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
                         if (pointIndex !== -1) {
@@ -1304,6 +1398,23 @@
             onMouseDown(event) { this.handlePointerDown(event.clientX, event.clientY); }
             onMouseMove(event) { this.handlePointerMove(event.clientX, event.clientY); }
             onMouseUp() { this.handlePointerUp(false); }
+            onMouseWheel(event) {
+                if (this.state.isEditingPath && this.state.isCyclingWaypoints) {
+                    event.preventDefault();
+                    if (event.deltaY < 0) { // Scroll up
+                        this.interactionData.cycleIndex--;
+                        if (this.interactionData.cycleIndex < 0) {
+                            this.interactionData.cycleIndex = this.path.length - 1;
+                        }
+                    } else { // Scroll down
+                        this.interactionData.cycleIndex++;
+                        if (this.interactionData.cycleIndex >= this.path.length) {
+                            this.interactionData.cycleIndex = 0;
+                        }
+                    }
+                    this.selectPoint(this.interactionData.cycleIndex);
+                }
+            }
             
             onTouchStart(event) {
                 event.preventDefault();
@@ -1357,7 +1468,7 @@
 
                 this.updateHoverEffect();
 
-                if (this.state.isEditingPath && this.interactionData.selectedPointIndex !== null) {
+                if (this.state.isEditingPath && this.interactionData.selectedPointIndex !== null && !this.state.isEditingWaypoint) {
                     this.handleKeyboardWaypointEditing(deltaTime);
                 } else if (this.state.cameraMode === 'FREE') {
                     this.updateFreeCameraMovement(deltaTime);
@@ -1430,7 +1541,7 @@
 
 
             updateHoverEffect() {
-                if (!this.state.isEditingPath || this.interactionData.draggedPointIndex !== null) {
+                if (!this.state.isEditingPath || this.interactionData.draggedPointIndex !== null || this.state.isCyclingWaypoints) {
                     if (this.interactionData.hoveredHelper) {
                         if (this.editHelpers.children.indexOf(this.interactionData.hoveredHelper) !== this.interactionData.selectedPointIndex) {
                            this.interactionData.hoveredHelper.material = this.editHelperMaterial;
@@ -1613,12 +1724,12 @@
                 });
             }
 
-            updateUI() {
-                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow, isEditingPath, editModeConstraint } = this.state;
+            updateUI(rebuildList = true) {
+                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow, isEditingPath, isCyclingWaypoints, editModeConstraint, isEditingWaypoint, mobileControlsVisible } = this.state;
                 const hasPath = this.path.length > 0;
                 const hasMultiplePoints = this.path.length > 1;
 
-                const isInteracting = isMarkingOnStructure || this.interactionData.isDragging;
+                const isInteracting = isMarkingOnStructure || this.interactionData.isDragging || isEditingWaypoint;
 
                 this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure || isEditingPath;
                 this.ui.stopBtn.disabled = isInteracting || !isRecording && !isPlaying || isRotatingStructure;
@@ -1626,21 +1737,24 @@
                 this.ui.playBackwardsBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
                 this.ui.resumeBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
                 this.ui.editPathBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isPlaying || isRotatingStructure;
-                this.ui.undoBtn.disabled = this.history.length === 0;
+                this.ui.cycleWaypointsBtn.disabled = isInteracting || !isEditingPath;
+                this.ui.undoBtn.disabled = this.history.length === 0 || isInteracting;
                 this.ui.saveBtn.disabled = isInteracting || !(hasMultiplePoints || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
                 this.ui.clearBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
-                this.ui.deleteSelectedWaypointsBtn.disabled = isInteracting || !hasPath || isRecording || isPlaying || isRotatingStructure;
+                this.ui.deleteSelectedWaypointsBtn.disabled = isInteracting || !hasPath || isRecording || isPlaying || isRotatingStructure || isCyclingWaypoints;
                 this.ui.switchViewBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markPoiBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markOnStructureBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.rovSpeed.disabled = isInteracting || isPlaying || isRotatingStructure;
+                this.ui.toggleMobileControlsBtn.disabled = isInteracting;
 
                 this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
                 this.ui.playBtn.textContent = isPlaying && !isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
                 this.ui.playBackwardsBtn.textContent = isPlaying && isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play Backwards';
                 this.ui.editPathBtn.textContent = isEditingPath ? 'Stop Editing' : 'Edit Path';
                 this.ui.editPathBtn.classList.toggle('active', isEditingPath);
+                this.ui.cycleWaypointsBtn.classList.toggle('active', isCyclingWaypoints);
                 this.ui.switchViewBtn.textContent = cameraMode === 'ORBIT' ? 'Switch to POV' : cameraMode === 'POV' ? 'Switch to Free' : 'Switch to Orbit';
                 this.ui.freeViewBtn.classList.toggle('active', cameraMode === 'FREE');
                 this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
@@ -1654,43 +1768,47 @@
                 this.ui.editModeHorizontalBtn.classList.toggle('active', editModeConstraint === 'horizontal');
                 this.ui.editModeVerticalBtn.classList.toggle('active', editModeConstraint === 'vertical');
                 
-                this.ui.waypointList.innerHTML = '';
-                if(this.path.length === 0) {
-                    this.ui.waypointList.innerHTML = 'None';
-                } else {
-                    this.path.forEach((p, i) => this.addListItem(
-                        this.ui.waypointList,
-                        `WP ${i}: (${(p.x * 100).toFixed(2)} cm, ${(p.y * 100).toFixed(2)} cm, ${(p.z * 100).toFixed(2)} cm)`,
-                        i
-                    ));
-                }
-                
-                this.ui.poiList.innerHTML = '';
-                if(this.pois.length === 0) { this.ui.poiList.innerHTML = 'None'; }
-                else {
-                    this.pois.forEach((p, i) => this.addListItem(
-                        this.ui.poiList,
-                        `POI ${i}: ${p.note}`,
-                        null,
-                        () => {
-                            if (p.mesh.parent) {
-                                p.mesh.parent.remove(p.mesh);
-                            }
-                            this.pois.splice(i, 1);
-                            this.updateUI();
-                        },
-                        () => {
-                            const poiWorldPos = new THREE.Vector3();
-                            p.mesh.getWorldPosition(poiWorldPos);
-                            this.rov.position.copy(poiWorldPos);
+                this.ui.mobileControls.classList.toggle('visible', mobileControlsVisible);
 
-                            if (this.state.cameraMode === 'ORBIT') {
-                                this.orbitControls.target.copy(this.rov.position);
+                if (rebuildList) {
+                    this.ui.waypointList.innerHTML = '';
+                    if(this.path.length === 0) {
+                        this.ui.waypointList.innerHTML = 'None';
+                    } else {
+                        this.path.forEach((p, i) => this.addListItem(
+                            this.ui.waypointList,
+                            `WP ${i}: (${(p.x * 100).toFixed(2)} cm, ${(p.y * 100).toFixed(2)} cm, ${(p.z * 100).toFixed(2)} cm)`,
+                            i
+                        ));
+                    }
+                    
+                    this.ui.poiList.innerHTML = '';
+                    if(this.pois.length === 0) { this.ui.poiList.innerHTML = 'None'; }
+                    else {
+                        this.pois.forEach((p, i) => this.addListItem(
+                            this.ui.poiList,
+                            `POI ${i}: ${p.note}`,
+                            null,
+                            () => {
+                                if (p.mesh.parent) {
+                                    p.mesh.parent.remove(p.mesh);
+                                }
+                                this.pois.splice(i, 1);
+                                this.updateUI();
+                            },
+                            () => {
+                                const poiWorldPos = new THREE.Vector3();
+                                p.mesh.getWorldPosition(poiWorldPos);
+                                this.rov.position.copy(poiWorldPos);
+
+                                if (this.state.cameraMode === 'ORBIT') {
+                                    this.orbitControls.target.copy(this.rov.position);
+                                }
+                                this.updateStatus(`Teleported to POI ${i}`);
+                                this.updateCoordinateDisplay();
                             }
-                            this.updateStatus(`Teleported to POI ${i}`);
-                            this.updateCoordinateDisplay();
-                        }
-                    ));
+                        ));
+                    }
                 }
             }
             
@@ -1716,7 +1834,7 @@
                     this.updateEditHelpers();
                 }
 
-                this.updateUI();
+                this.updateUI(!this.state.isEditingWaypoint);
             }
 
             updateStatus(message) {
@@ -1865,9 +1983,24 @@
                 if (this.interactionData.selectedPointIndex !== null && this.interactionData.selectedPointIndex < this.editHelpers.children.length) {
                     this.editHelpers.children[this.interactionData.selectedPointIndex].material = this.editHelperMaterial;
                 }
+                
+                const oldListItem = document.querySelector('.list-item.highlighted');
+                if (oldListItem) {
+                    oldListItem.classList.remove('highlighted');
+                }
+
                 this.interactionData.selectedPointIndex = index;
+                this.interactionData.cycleIndex = index;
+
                 if (index !== null && index < this.editHelpers.children.length) {
                     this.editHelpers.children[index].material = this.editHelperSelectedMaterial;
+                    
+                    const newListItem = document.getElementById(`waypoint-item-${index}`);
+                    if (newListItem) {
+                        newListItem.classList.add('highlighted');
+                        newListItem.scrollIntoView({ block: 'nearest' });
+                    }
+
                     this.updateStatus(`Point ${index} selected. Use WASD to move or Esc to deselect.`);
                 }
             }
@@ -1876,7 +2009,15 @@
                 if (this.interactionData.selectedPointIndex !== null && this.interactionData.selectedPointIndex < this.editHelpers.children.length) {
                     this.editHelpers.children[this.interactionData.selectedPointIndex].material = this.editHelperMaterial;
                 }
+                
+                const oldListItem = document.querySelector('.list-item.highlighted');
+                if (oldListItem) {
+                    oldListItem.classList.remove('highlighted');
+                }
+
                 this.interactionData.selectedPointIndex = null;
+                this.interactionData.cycleIndex = -1;
+
                 if (this.state.isEditingPath) {
                     this.updateStatus('Path editing enabled.');
                 }
@@ -1893,6 +2034,29 @@
                 item.className = 'list-item';
 
                 if (waypointIndex !== null && waypointIndex !== undefined) {
+                    item.id = `waypoint-item-${waypointIndex}`;
+                    item.addEventListener('mouseenter', () => {
+                        if (this.state.isEditingPath) {
+                            const helper = this.editHelpers.children[waypointIndex];
+                            if (helper && this.interactionData.selectedPointIndex !== waypointIndex) {
+                                helper.material = this.editHelperHighlightMaterial;
+                            }
+                        }
+                    });
+                    item.addEventListener('mouseleave', () => {
+                        if (this.state.isEditingPath) {
+                            const helper = this.editHelpers.children[waypointIndex];
+                            if (helper && this.interactionData.selectedPointIndex !== waypointIndex) {
+                                helper.material = this.editHelperMaterial;
+                            }
+                        }
+                    });
+                    item.addEventListener('click', (e) => {
+                        if (this.state.isEditingPath && e.target.type !== 'checkbox' && e.target.tagName.toLowerCase() !== 'button' && e.target.tagName.toLowerCase() !== 'input') {
+                            this.selectPoint(waypointIndex);
+                        }
+                    });
+
                     const checkbox = document.createElement('input');
                     checkbox.type = 'checkbox';
                     checkbox.dataset.waypointIndex = waypointIndex;
@@ -1904,6 +2068,7 @@
                 textSpan.textContent = text;
                 textSpan.style.flexGrow = '1';
                 textSpan.style.marginRight = '5px';
+                item.appendChild(textSpan);
                 
                 if (teleportCallback) {
                     const tpBtn = document.createElement('button');
@@ -1919,17 +2084,55 @@
                     item.appendChild(tpBtn);
                 }
                 
-                item.appendChild(textSpan);
-                
                 if (deleteCallback) {
                     const delBtn = document.createElement('button');
                     delBtn.textContent = 'X';
                     delBtn.className = 'del-btn';
                     delBtn.addEventListener('click', deleteCallback);
                     item.appendChild(delBtn);
+                } else if (waypointIndex !== null) {
+                    const editBtn = document.createElement('button');
+                    editBtn.textContent = 'Edit';
+                    editBtn.style.padding = '2px 6px';
+                    editBtn.addEventListener('click', () => {
+                        this.enterWaypointEditMode(item, waypointIndex);
+                    });
+                    item.appendChild(editBtn);
                 }
                 
                 listElement.appendChild(item);
+            }
+
+            enterWaypointEditMode(item, index) {
+                if (this.state.isEditingWaypoint) return;
+                this.state.isEditingWaypoint = true;
+                this.updateUI(false); // Update buttons, but don't rebuild the list
+
+                const point = this.path[index];
+                item.innerHTML = `
+                    <div style="display: flex; align-items: center; width: 100%;">
+                        <span style="margin-right: 5px;">${index}:</span>
+                        <input type="number" value="${(point.x * 100).toFixed(2)}" style="width: 50px;" data-axis="x">
+                        <input type="number" value="${(point.y * 100).toFixed(2)}" style="width: 50px;" data-axis="y">
+                        <input type="number" value="${(point.z * 100).toFixed(2)}" style="width: 50px;" data-axis="z">
+                        <button class="save-wp-btn" style="padding: 2px 4px; margin-left: 5px;">Save</button>
+                    </div>
+                `;
+                
+                item.querySelector('.save-wp-btn').addEventListener('click', () => {
+                    const newX = parseFloat(item.querySelector('input[data-axis="x"]').value) / 100;
+                    const newY = parseFloat(item.querySelector('input[data-axis="y"]').value) / 100;
+                    const newZ = parseFloat(item.querySelector('input[data-axis="z"]').value) / 100;
+                    
+                    if (!isNaN(newX) && !isNaN(newY) && !isNaN(newZ)) {
+                        this.saveStateForUndo();
+                        this.path[index].set(newX, newY, newZ);
+                        this.updatePathVisuals();
+                    }
+                    
+                    this.state.isEditingWaypoint = false;
+                    this.updateUI();
+                });
             }
             
             updateEditHelpers() {
