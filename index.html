@@ -50,6 +50,7 @@
         .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
+        .edit-mode-controls button { padding: 4px 8px; font-size: 0.8em; }
     </style>
 </head>
 <body>
@@ -98,7 +99,19 @@
             </div>
             <div class="control-group">
                 <h4>Waypoints</h4>
+                <button id="deleteSelectedWaypointsBtn" disabled>Delete Selected</button>
                 <div id="waypoint-list" class="list-container">None</div>
+                <div id="proportional-edit-controls" style="display:none; margin-top: 10px;">
+                    <div class="edit-mode-controls" style="margin-top: 10px; margin-bottom: 10px;">
+                        <span style="font-size: 0.9em; margin-right: 5px;">Move Axis:</span>
+                        <button id="editModeFreeBtn" class="active">Free</button>
+                        <button id="editModeHorizontalBtn">Horizontal</button>
+                        <button id="editModeVerticalBtn">Vertical</button>
+                    </div>
+                    <label for="editFalloff" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Edit Falloff:</label>
+                    <input type="range" id="editFalloff" min="0" max="50" step="1" value="10" style="width: 100%;">
+                    <span id="editFalloffValue" style="font-size: 0.8em; color: #666;">10.0</span>
+                </div>
             </div>
             <div class="control-group">
                 <h4>Points of Interest</h4>
@@ -138,11 +151,10 @@
                 this.keys = {};
                 this.raycaster = new THREE.Raycaster();
                 this.mouse = new THREE.Vector2();
-
-                // --- NEW: Proximity setting for POI inspection ---
-                this.inspectionDistance = 2.5; // Distance to trigger auto-pause at a POI
                 
+                this.inspectionDistance = 2.5;
                 this.rovSpeed = 10.0;
+                this.editFalloff = 10.0;
                 this.fishArray = [];
                 this.seaweedArray = [];
 
@@ -153,26 +165,42 @@
                     isPlaying: false,
                     isPlaybackPaused: false,
                     isReversed: false,
-                    cameraMode: 'ORBIT', // 'ORBIT', 'POV', or 'FREE'
+                    cameraMode: 'ORBIT',
                     isMarkingOnStructure: false,
                     isRotatingStructure: false,
                     minimapVisible: true,
                     minimapFollow: true,
-                    isEditingPath: false, // NEW: Path editing state
+                    isEditingPath: false,
+                    editModeConstraint: 'free',
                 };
                 
                 this.interactionData = {
                     isDragging: false,
                     previousMouseX: 0,
-                    draggedPointIndex: null, // NEW: Index of the path point being dragged
+                    draggedPointIndex: null,
+                    originalDraggedPointPosition: null,
+                    originalPath: [],
+                    hoveredHelper: null,
                 };
 
-                // --- Data ---
+                // --- Data & Visuals ---
                 this.path = [];
                 this.pois = [];
                 this.pathCurve = null;
                 this.pathLine = null;
                 this.playbackTime = 0;
+                this.editHelpers = new THREE.Group();
+
+                this.editHelperMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00ffff,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                this.editHelperHighlightMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffa500,
+                    transparent: true,
+                    opacity: 0.7
+                });
 
                 this.initialize();
             }
@@ -185,24 +213,22 @@
                 this.setupControls();
                 this.setupMinimap();
                 this.bindEventListeners();
-                this.updateUI(); // Set initial UI state
+                this.updateUI();
                 this.animate();
             }
 
             setupRenderer() {
                 this.renderer.setSize(this.sceneContainer.clientWidth, this.sceneContainer.clientHeight);
-                this.renderer.setClearColor(0x334155); // A calm, dark blue
+                this.renderer.setClearColor(0x334155);
                 this.sceneContainer.appendChild(this.renderer.domElement);
             }
 
             setupScene() {
-                // Lighting
                 this.scene.add(new THREE.AmbientLight(0xcccccc, 1.0));
                 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
                 dirLight.position.set(50, 50, 50);
                 this.scene.add(dirLight);
 
-                // Basic ground plane
                 const ground = new THREE.Mesh(
                     new THREE.PlaneGeometry(200, 200),
                     new THREE.MeshLambertMaterial({ color: 0x475569 })
@@ -210,19 +236,14 @@
                 ground.rotation.x = -Math.PI / 2;
                 this.scene.add(ground);
 
-                // Create detailed seabed with collision detection
                 this.createSeabed();
-
-                // Subsea Christmas Tree (detailed representation)
                 this.createChristmasTreeModel();
-
-                // ROV model (detailed representation)
                 this.createROVModel();
-
                 this.createFish();
                 this.createSeaweed();
 
-                // Camera initial position
+                this.scene.add(this.editHelpers);
+
                 this.camera.position.set(30, 20, 30);
                 this.camera.lookAt(this.rov.position);
             }
@@ -753,33 +774,28 @@
                 this.minimapCanvas = document.getElementById('minimap-canvas');
                 this.minimapCtx = this.minimapCanvas.getContext('2d');
                 
-                // Set canvas size
                 this.minimapCanvas.width = 200;
                 this.minimapCanvas.height = 200;
                 
-                // Minimap settings
                 this.minimapSettings = {
                     size: 200,
                     padding: 20,
-                    worldSize: 100, // Size of world to show in minimap
+                    worldSize: 100,
                     centerX: 0,
                     centerZ: 0
                 };
             }
 
             bindEventListeners() {
-                // Window
                 window.addEventListener('resize', () => this.onWindowResize());
                 window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
                 window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
                 
-                // Mouse listeners for interactions
                 this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
                 this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
-                window.addEventListener('mouseup', () => this.onMouseUp()); // Use window to catch mouseup event anywhere
+                window.addEventListener('mouseup', () => this.onMouseUp());
 
 
-                // UI Elements
                 this.ui = {
                     recordBtn: document.getElementById('recordBtn'),
                     stopBtn: document.getElementById('stopBtn'),
@@ -797,6 +813,7 @@
                     markPoiBtn: document.getElementById('markPoiBtn'),
                     markOnStructureBtn: document.getElementById('markOnStructureBtn'),
                     waypointList: document.getElementById('waypoint-list'),
+                    deleteSelectedWaypointsBtn: document.getElementById('deleteSelectedWaypointsBtn'),
                     poiList: document.getElementById('poi-list'),
                     statusBar: document.getElementById('status-bar'),
                     coordsBar: document.getElementById('coords-bar'),
@@ -808,9 +825,14 @@
                     minimapFollow: document.getElementById('minimap-follow'),
                     minimapContainer: document.getElementById('minimap-container'),
                     toggleControlsBtn: document.getElementById('toggleControlsBtn'),
+                    editFalloff: document.getElementById('editFalloff'),
+                    editFalloffValue: document.getElementById('editFalloffValue'),
+                    proportionalEditControls: document.getElementById('proportional-edit-controls'),
+                    editModeFreeBtn: document.getElementById('editModeFreeBtn'),
+                    editModeHorizontalBtn: document.getElementById('editModeHorizontalBtn'),
+                    editModeVerticalBtn: document.getElementById('editModeVerticalBtn'),
                 };
 
-                // Button Clicks
                 this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
                 this.ui.stopBtn.addEventListener('click', () => this.handleStop());
                 this.ui.playBtn.addEventListener('click', () => this.handlePlay(false));
@@ -826,11 +848,16 @@
                 this.ui.saveBtn.addEventListener('click', () => this.saveData());
                 this.ui.loadBtn.addEventListener('click', () => this.ui.loadInput.click());
                 this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
+                this.ui.deleteSelectedWaypointsBtn.addEventListener('click', () => this.handleDeleteSelectedWaypoints());
                 this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
                 this.ui.rovSpeed.addEventListener('input', (e) => this.handleRovSpeedChange(e.target.value));
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
                 this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
                 this.ui.toggleControlsBtn.addEventListener('click', () => this.handleToggleControls());
+                this.ui.editFalloff.addEventListener('input', (e) => this.handleFalloffChange(e.target.value));
+                this.ui.editModeFreeBtn.addEventListener('click', () => this.handleEditModeChange('free'));
+                this.ui.editModeHorizontalBtn.addEventListener('click', () => this.handleEditModeChange('horizontal'));
+                this.ui.editModeVerticalBtn.addEventListener('click', () => this.handleEditModeChange('vertical'));
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -840,25 +867,34 @@
                 this.ui.rovSpeedValue.textContent = this.rovSpeed.toFixed(1);
             }
             
+            handleFalloffChange(value) {
+                this.editFalloff = parseFloat(value);
+                this.ui.editFalloffValue.textContent = this.editFalloff.toFixed(1);
+            }
+
+            handleEditModeChange(mode) {
+                this.state.editModeConstraint = mode;
+                this.updateUI();
+            }
+
             handleToggleControls() {
                 const controlsPanel = document.getElementById('controls-panel');
                 controlsPanel.classList.toggle('hidden');
                 const isHidden = controlsPanel.classList.contains('hidden');
                 this.ui.toggleControlsBtn.textContent = isHidden ? 'Show Controls' : 'Hide Controls';
 
-                // Give the CSS transition time to finish before resizing the canvas
                 setTimeout(() => {
                     this.onWindowResize();
-                }, 300); // 300ms matches the CSS transition time
+                }, 300);
             }
 
             handleRecord() {
-                if (!this.state.isRecording) { // Start new recording
-                    this.path = [this.rov.position.clone()]; // Start with current position
+                if (!this.state.isRecording) {
+                    this.path = [this.rov.position.clone()];
                     this.state.isRecording = true;
                     this.state.isPaused = false;
                     this.updateStatus('Recording path...');
-                } else { // Pause/Resume
+                } else {
                     this.state.isPaused = !this.state.isPaused;
                     this.updateStatus(this.state.isPaused ? 'Recording paused.' : 'Recording...');
                 }
@@ -883,16 +919,13 @@
             
             handlePlay(isReversed = false) {
                 if (!this.state.isPlaying) {
-                    // This is the start of a new playback session
                     this.state.isReversed = isReversed;
                     this.playbackTime = isReversed ? 1 : 0;
                     this.state.isPlaying = true;
                     this.state.isPlaybackPaused = false;
                     this.updateStatus(isReversed ? 'Playing path backwards...' : 'Playing path...');
-                    // **NEW**: Reset the triggered state for all POIs
                     this.pois.forEach(p => p.triggered = false);
                 } else {
-                    // This toggles pause/resume during an existing playback session
                     if (this.state.isReversed !== isReversed) {
                         this.state.isReversed = isReversed;
                         this.state.isPlaybackPaused = false;
@@ -910,11 +943,9 @@
                     return;
                 }
 
-                // Stop playback if it's running
                 this.state.isPlaying = false;
                 this.state.isPlaybackPaused = false;
 
-                // Get current position from playback or ROV position
                 let currentPosition;
                 if (this.state.isPlaying) {
                     currentPosition = this.pathCurve.getPointAt(this.playbackTime);
@@ -922,17 +953,13 @@
                     currentPosition = this.rov.position.clone();
                 }
 
-                // Truncate the path to the current position
                 const currentTime = this.playbackTime;
                 const pathIndex = Math.floor(currentTime * (this.path.length - 1));
                 
-                // Keep only the path up to the current position
                 this.path = this.path.slice(0, pathIndex + 1);
                 
-                // Set ROV to the current position
                 this.rov.position.copy(currentPosition);
                 
-                // Start recording from this point
                 this.state.isRecording = true;
                 this.state.isPaused = false;
                 
@@ -954,6 +981,7 @@
                 if (this.pathLine) this.scene.remove(this.pathLine);
                 this.pathLine = null;
                 this.pathCurve = null;
+                this.updateEditHelpers();
                 this.rov.position.set(20, 5, 20);
                 this.rov.quaternion.set(0,0,0,1);
                 this.updateStatus('Data cleared.');
@@ -961,7 +989,6 @@
             }
             
             handleSwitchView() {
-                // Cycle through camera modes: ORBIT -> POV -> FREE -> ORBIT
                 if (this.state.cameraMode === 'ORBIT') {
                     this.state.cameraMode = 'POV';
                     this.orbitControls.enabled = false;
@@ -982,7 +1009,7 @@
             handleFreeView() {
                 this.state.cameraMode = 'FREE';
                 this.orbitControls.enabled = true;
-                this.orbitControls.target.set(0, 0, 0); // Set target to origin for free movement
+                this.orbitControls.target.set(0, 0, 0);
                 this.updateStatus('Free view mode activated. Use mouse to move camera freely.');
                 this.updateUI();
             }
@@ -1014,35 +1041,62 @@
             
             toggleEditMode() {
                 this.state.isEditingPath = !this.state.isEditingPath;
+                this.ui.proportionalEditControls.style.display = this.state.isEditingPath ? 'block' : 'none';
                 if (this.state.isEditingPath) {
-                    this.updateStatus('Path editing enabled. Click and drag the path to modify it.');
+                    this.updateStatus('Path editing enabled. Drag points to move them.');
                 } else {
                     this.updateStatus('Path editing disabled.');
                 }
+                this.updateEditHelpers();
                 this.updateUI();
             }
 
+            handleDeleteSelectedWaypoints() {
+                const checkboxes = this.ui.waypointList.querySelectorAll('input[type="checkbox"]:checked');
+                const indicesToDelete = [];
+                checkboxes.forEach(cb => {
+                    indicesToDelete.push(parseInt(cb.dataset.waypointIndex, 10));
+                });
+
+                if (indicesToDelete.length === 0) {
+                    this.updateStatus("No waypoints selected for deletion.");
+                    return;
+                }
+
+                indicesToDelete.sort((a, b) => b - a);
+
+                indicesToDelete.forEach(index => {
+                    this.path.splice(index, 1);
+                });
+
+                this.updatePathVisuals();
+                this.updateUI();
+                this.updateStatus(`Deleted ${indicesToDelete.length} waypoint(s).`);
+            }
+
             onMouseDown(event) {
+                if (event.target !== this.renderer.domElement) return;
+
                 const rect = this.renderer.domElement.getBoundingClientRect();
                 this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
                 this.raycaster.setFromCamera(this.mouse, this.camera);
                 
-                if (this.state.isEditingPath && this.pathLine) {
-                    const intersects = this.raycaster.intersectObject(this.pathLine);
-                    if (intersects.length > 0) {
-                        const closestPointIndex = this.findClosestPointOnPath(intersects[0].point);
-                        if (closestPointIndex !== null) {
-                            this.interactionData.draggedPointIndex = closestPointIndex;
-                            this.orbitControls.enabled = false;
-                            this.updateStatus(`Editing point ${closestPointIndex}. Drag to move.`);
-                        }
+                if (this.state.isEditingPath && this.interactionData.hoveredHelper) {
+                    const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
+                    if (pointIndex !== -1) {
+                        this.interactionData.draggedPointIndex = pointIndex;
+                        this.interactionData.originalDraggedPointPosition = this.path[pointIndex].clone();
+                        this.interactionData.originalPath = this.path.map(p => p.clone());
+                        this.orbitControls.enabled = false;
+                        this.updateStatus(`Editing point ${pointIndex}. Drag to move.`);
                     }
                 } else if (this.state.isMarkingOnStructure) {
-                    const intersects = this.raycaster.intersectObject(this.structure, true); // Intersect children too
+                    const intersects = this.raycaster.intersectObject(this.structure, true);
                     if (intersects.length > 0) {
                         this.createPOI(intersects[0].point, true);
-                        this.state.isMarkingOnStructure = false; // Exit mode after successful mark
+                        this.state.isMarkingOnStructure = false;
                     } else {
                         this.updateStatus('Missed! Click on the yellow structure.');
                         this.state.isMarkingOnStructure = false;
@@ -1059,39 +1113,92 @@
             }
 
             onMouseMove(event) {
+                const rect = this.renderer.domElement.getBoundingClientRect();
+                this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+
                 if (this.interactionData.isDragging) {
                     const deltaX = event.clientX - this.interactionData.previousMouseX;
-                    this.structure.rotation.y += deltaX * 0.01; // Sensitivity factor
+                    this.structure.rotation.y += deltaX * 0.01;
                     this.interactionData.previousMouseX = event.clientX;
                 } else if (this.state.isEditingPath && this.interactionData.draggedPointIndex !== null) {
-                    const rect = this.renderer.domElement.getBoundingClientRect();
-                    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-                    this.raycaster.setFromCamera(this.mouse, this.camera);
+                    const originalPoint = this.interactionData.originalDraggedPointPosition;
+                    let intersectPoint = new THREE.Vector3();
+                    let moveDelta;
+                    let plane;
 
-                    // Intersect with a plane to get 3D coordinates
-                    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.path[this.interactionData.draggedPointIndex].y);
-                    const intersectPoint = new THREE.Vector3();
-                    this.raycaster.ray.intersectPlane(plane, intersectPoint);
+                    switch (this.state.editModeConstraint) {
+                        case 'horizontal':
+                            plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -originalPoint.y);
+                            this.raycaster.ray.intersectPlane(plane, intersectPoint);
+                            moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
+                            break;
 
-                    if (intersectPoint) {
-                        this.path[this.interactionData.draggedPointIndex].copy(intersectPoint);
-                        this.updatePathVisuals();
+                        case 'vertical':
+                            // Create a vertical plane that faces the camera
+                            const cameraRight = new THREE.Vector3().set(this.camera.matrix.elements[0], this.camera.matrix.elements[1], this.camera.matrix.elements[2]);
+                            const planeNormal = cameraRight.cross(this.camera.up).normalize();
+                            plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, originalPoint);
+                            this.raycaster.ray.intersectPlane(plane, intersectPoint);
+                            
+                            // Constrain to vertical movement
+                            intersectPoint.x = originalPoint.x;
+                            intersectPoint.z = originalPoint.z;
+                            
+                            moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
+                            break;
+
+                        case 'free':
+                        default:
+                            plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+                                this.camera.getWorldDirection(new THREE.Vector3()).negate(),
+                                originalPoint
+                            );
+                            this.raycaster.ray.intersectPlane(plane, intersectPoint);
+                            moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
+                            break;
+                    }
+            
+                    if (moveDelta) {
+                        for (let i = 0; i < this.path.length; i++) {
+                            const pointToMove = this.interactionData.originalPath[i];
+                            const distance = pointToMove.distanceTo(originalPoint);
+            
+                            let influence = 0;
+                            if (this.editFalloff > 0 && distance < this.editFalloff) {
+                                const normalizedDistance = distance / this.editFalloff;
+                                influence = (Math.cos(normalizedDistance * Math.PI) + 1) / 2;
+                            }
+            
+                            if (i === this.interactionData.draggedPointIndex) {
+                                influence = 1;
+                            }
+                            
+                            const influencedDelta = moveDelta.clone().multiplyScalar(influence);
+                            this.path[i].copy(pointToMove).add(influencedDelta);
+            
+                            this.editHelpers.children[i].position.copy(this.path[i]);
+                        }
+                        this.updatePathVisuals(true);
                     }
                 }
             }
 
+
             onMouseUp() {
+                if (this.interactionData.draggedPointIndex !== null) {
+                    this.interactionData.draggedPointIndex = null;
+                    this.interactionData.originalDraggedPointPosition = null;
+                    this.interactionData.originalPath = [];
+                    this.orbitControls.enabled = true;
+                    this.updateStatus('Path editing enabled.');
+                    this.updatePathVisuals();
+                }
                 if (this.interactionData.isDragging) {
                     this.interactionData.isDragging = false;
-                    if(this.state.cameraMode !== 'POV') { // Re-enable controls if not in POV
+                    if(this.state.cameraMode !== 'POV') {
                        this.orbitControls.enabled = true;
-                    }
-                } else if (this.interactionData.draggedPointIndex !== null) {
-                    this.interactionData.draggedPointIndex = null;
-                    this.orbitControls.enabled = true;
-                    if (this.state.isEditingPath) {
-                        this.updateStatus('Path editing enabled.');
                     }
                 }
             }
@@ -1117,11 +1224,11 @@
                     this.structure.add(poiMesh);
                     const localPosition = this.structure.worldToLocal(position.clone());
                     poiMesh.position.copy(localPosition);
-                    poiData.pos = localPosition; // Store local position
+                    poiData.pos = localPosition;
                 } else {
                     this.scene.add(poiMesh);
                     poiMesh.position.copy(position);
-                    poiData.pos = position; // Store world position
+                    poiData.pos = position;
                 }
 
                 this.pois.push(poiData);
@@ -1136,6 +1243,8 @@
                 requestAnimationFrame(() => this.animate());
                 const deltaTime = this.clock.getDelta();
                 const elapsedTime = this.clock.getElapsedTime();
+
+                this.updateHoverEffect();
 
                 if (!this.state.isPlaying) {
                     this.updateROVMovement(deltaTime);
@@ -1155,10 +1264,38 @@
                 this.renderer.render(this.scene, this.camera);
             }
             
+            updateHoverEffect() {
+                if (!this.state.isEditingPath || this.interactionData.draggedPointIndex !== null) {
+                    if (this.interactionData.hoveredHelper) {
+                        this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                        this.interactionData.hoveredHelper = null;
+                    }
+                    return;
+                }
+            
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                const intersects = this.raycaster.intersectObjects(this.editHelpers.children);
+            
+                if (intersects.length > 0) {
+                    const newHovered = intersects[0].object;
+                    if (this.interactionData.hoveredHelper !== newHovered) {
+                        if (this.interactionData.hoveredHelper) {
+                            this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                        }
+                        this.interactionData.hoveredHelper = newHovered;
+                        this.interactionData.hoveredHelper.material = this.editHelperHighlightMaterial;
+                    }
+                } else {
+                    if (this.interactionData.hoveredHelper) {
+                        this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                        this.interactionData.hoveredHelper = null;
+                    }
+                }
+            }
+
             updateFreeCameraMovement(deltaTime) {
                 const cameraMoveSpeed = 15.0;
                 
-                // Camera movement
                 const moveDirection = new THREE.Vector3();
                 if (this.keys['ArrowUp'] || this.keys['KeyW']) moveDirection.z = -1;
                 if (this.keys['ArrowDown'] || this.keys['KeyS']) moveDirection.z = 1;
@@ -1171,47 +1308,37 @@
                 if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed * deltaTime;
                 if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed * deltaTime;
                 
-                // Update orbit controls target to follow camera movement
                 this.orbitControls.target.copy(this.camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(this.camera.quaternion));
             }
             
             updateROVMovement(deltaTime) {
-                if (this.state.cameraMode === 'FREE') {
-                    // Do not move ROV in FREE mode
-                    return; 
-                }
+                if (this.state.cameraMode === 'FREE') return; 
 
                 const moveSpeed = this.rovSpeed;
                 const turnSpeed = 2.0;
 
-                // Store current position for collision detection
                 const currentPosition = this.rov.position.clone();
 
                 if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
                 if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
                 if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
                 if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
-                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime; // Rise
-                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime; // Fall
+                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime;
+                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime;
 
-                // Collision detection with seabed
-                const rovBottom = this.rov.position.y - 0.5; // ROV bottom position (assuming ROV height is 1 unit)
+                const rovBottom = this.rov.position.y - 0.5;
                 if (rovBottom < this.seabedHeight) {
-                    // ROV is hitting the seabed, prevent further downward movement
                     this.rov.position.y = this.seabedHeight + 0.5;
-                    
-                    // Optional: Add some visual feedback when hitting seabed
                     if (this.keys['KeyQ']) {
                         this.updateStatus('ROV touching seabed');
                     }
                 }
 
-                // Record path points
                 if (this.state.isRecording && !this.state.isPaused) {
                     const lastPoint = this.path[this.path.length - 1];
-                    if (this.rov.position.distanceTo(lastPoint) > 0.2) { // Record every 0.2 unit of distance
+                    if (this.rov.position.distanceTo(lastPoint) > 0.2) {
                         this.path.push(this.rov.position.clone());
-                        this.updatePathVisuals(); // Update line as we go
+                        this.updatePathVisuals();
                     }
                 }
             }
@@ -1219,8 +1346,6 @@
             updatePlayback(deltaTime) {
                 if (!this.pathCurve) return;
 
-                // --- NEW: POI Interruption Check ---
-                // Only perform this check if playback is active and not paused.
                 if (this.state.isPlaying && !this.state.isPlaybackPaused) {
                     const currentPos = this.pathCurve.getPointAt(this.playbackTime);
                     for (let i = 0; i < this.pois.length; i++) {
@@ -1229,27 +1354,23 @@
                         const poiWorldPos = new THREE.Vector3();
                         poi.mesh.getWorldPosition(poiWorldPos);
 
-                        // Check if POI is close and hasn't been triggered in this playback run
                         if (!poi.triggered && currentPos.distanceTo(poiWorldPos) < this.inspectionDistance) {
-                            poi.triggered = true; // Mark as triggered for this run
-                            this.state.isPlaybackPaused = true; // Pause the playback
+                            poi.triggered = true;
+                            this.state.isPlaybackPaused = true;
                             
-                            // Snap ROV to the POI for a clean stop
                             this.rov.position.copy(poiWorldPos);
                             const tangent = this.pathCurve.getTangentAt(this.playbackTime).normalize();
                             this.rov.lookAt(poiWorldPos.clone().add(tangent));
 
-                            this.updateStatus(`Paused for inspection at POI ${i}: ${p.note}`);
+                            this.updateStatus(`Paused for inspection at POI ${i}: ${poi.note}`);
                             this.updateUI();
-                            return; // Stop processing this frame, the pause is now active
+                            return;
                         }
                     }
                 }
 
-                // If playback is paused (either by user or by POI), do not advance time.
                 if (this.state.isPlaybackPaused) return;
 
-                // --- Original Playback Logic ---
                 const speedMultiplier = parseFloat(this.ui.playbackSpeed.value);
                 if (this.state.isReversed) {
                     this.playbackTime -= deltaTime * speedMultiplier;
@@ -1274,19 +1395,16 @@
 
             updateCamera() {
                 if (this.state.cameraMode === 'ORBIT') {
-                    // Orbit controls are enabled by default unless dragging the structure
                     if(!this.interactionData.isDragging) {
                        this.orbitControls.target.lerp(this.rov.position, 0.1);
                     }
                     this.orbitControls.update();
                 } else if (this.state.cameraMode === 'POV') {
-                    // Orbit controls are already disabled in handleSwitchView
-                    const offset = new THREE.Vector3(0, 1.5, 3); // Behind and above
+                    const offset = new THREE.Vector3(0, 1.5, 3);
                     const cameraPos = this.rov.localToWorld(offset);
                     this.camera.position.lerp(cameraPos, 0.1);
                     this.camera.lookAt(this.rov.position);
                 } else if (this.state.cameraMode === 'FREE') {
-                    // Free view mode - camera moves independently
                     this.orbitControls.update();
                 }
             }
@@ -1295,7 +1413,6 @@
                 this.fishArray.forEach(fish => {
                     fish.mesh.position.add(fish.direction.clone().multiplyScalar(fish.speed * deltaTime));
 
-                    // Add some random turning
                     if (Math.random() < 0.05) {
                          const newDirection = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.2 - 0.1, Math.random() - 0.5).normalize();
                          fish.direction.lerp(newDirection, 0.1).normalize();
@@ -1303,7 +1420,6 @@
 
                     fish.mesh.lookAt(fish.mesh.position.clone().add(fish.direction));
                     
-                    // Boundaries
                     if (fish.mesh.position.x > 100 || fish.mesh.position.x < -100 || fish.mesh.position.z > 100 || fish.mesh.position.z < -100) {
                         fish.direction.x *= -1;
                         fish.direction.z *= -1;
@@ -1312,7 +1428,6 @@
                         fish.direction.y *= -1;
                     }
 
-                    // Swim animation
                     fish.swimPhase += fish.speed * deltaTime * 5;
                     fish.mesh.tailFin.rotation.y = Math.sin(fish.swimPhase) * 0.5;
                 });
@@ -1334,20 +1449,22 @@
             }
 
             updateUI() {
-                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow, isEditingPath } = this.state;
-                const hasPath = this.path.length > 1;
+                const { isRecording, isPlaying, isPlaybackPaused, isReversed, cameraMode, isMarkingOnStructure, isRotatingStructure, minimapVisible, minimapFollow, isEditingPath, editModeConstraint } = this.state;
+                const hasPath = this.path.length > 0;
+                const hasMultiplePoints = this.path.length > 1;
 
                 const isInteracting = isMarkingOnStructure || this.interactionData.isDragging;
 
                 this.ui.recordBtn.disabled = isInteracting || isPlaying || isRotatingStructure || isEditingPath;
                 this.ui.stopBtn.disabled = isInteracting || !isRecording && !isPlaying || isRotatingStructure;
-                this.ui.playBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
-                this.ui.playBackwardsBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
-                this.ui.resumeBtn.disabled = isInteracting || !hasPath || isRecording || isRotatingStructure || isEditingPath;
-                this.ui.editPathBtn.disabled = isInteracting || !hasPath || isRecording || isPlaying || isRotatingStructure;
-                this.ui.saveBtn.disabled = isInteracting || !(hasPath || this.pois.length > 0) || isRotatingStructure;
+                this.ui.playBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.playBackwardsBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.resumeBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
+                this.ui.editPathBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isPlaying || isRotatingStructure;
+                this.ui.saveBtn.disabled = isInteracting || !(hasMultiplePoints || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
                 this.ui.clearBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
+                this.ui.deleteSelectedWaypointsBtn.disabled = isInteracting || !hasPath || isRecording || isPlaying || isRotatingStructure;
                 this.ui.switchViewBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markPoiBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.markOnStructureBtn.disabled = isInteracting || isRotatingStructure;
@@ -1362,29 +1479,33 @@
                 this.ui.freeViewBtn.classList.toggle('active', cameraMode === 'FREE');
                 this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
                 
-                // Minimap controls
                 this.ui.minimapContainer.style.display = minimapVisible ? 'block' : 'none';
                 this.ui.minimapToggle.textContent = minimapVisible ? 'Hide' : 'Show';
                 this.ui.minimapFollow.textContent = minimapFollow ? 'Fixed' : 'Follow';
                 this.ui.minimapFollow.classList.toggle('active', minimapFollow);
+
+                this.ui.editModeFreeBtn.classList.toggle('active', editModeConstraint === 'free');
+                this.ui.editModeHorizontalBtn.classList.toggle('active', editModeConstraint === 'horizontal');
+                this.ui.editModeVerticalBtn.classList.toggle('active', editModeConstraint === 'vertical');
                 
-                // Waypoint List
                 this.ui.waypointList.innerHTML = '';
-                if(this.path.length === 0) { this.ui.waypointList.innerHTML = 'None'; }
-                else {
-                    this.path.forEach((p, i) => this.addListItem(this.ui.waypointList, `WP ${i}: (${(p.x * 100).toFixed(2)} cm, ${(p.y * 100).toFixed(2)} cm, ${(p.z * 100).toFixed(2)} cm)`, () => {
-                        this.path.splice(i, 1);
-                        this.updatePathVisuals();
-                    }));
+                if(this.path.length === 0) {
+                    this.ui.waypointList.innerHTML = 'None';
+                } else {
+                    this.path.forEach((p, i) => this.addListItem(
+                        this.ui.waypointList,
+                        `WP ${i}: (${(p.x * 100).toFixed(2)} cm, ${(p.y * 100).toFixed(2)} cm, ${(p.z * 100).toFixed(2)} cm)`,
+                        i
+                    ));
                 }
                 
-                // POI List
                 this.ui.poiList.innerHTML = '';
                 if(this.pois.length === 0) { this.ui.poiList.innerHTML = 'None'; }
                 else {
                     this.pois.forEach((p, i) => this.addListItem(
                         this.ui.poiList,
                         `POI ${i}: ${p.note}`,
+                        null,
                         () => {
                             if (p.mesh.parent) {
                                 p.mesh.parent.remove(p.mesh);
@@ -1393,7 +1514,6 @@
                             this.updateUI();
                         },
                         () => {
-                            // Teleport callback
                             const poiWorldPos = new THREE.Vector3();
                             p.mesh.getWorldPosition(poiWorldPos);
                             this.rov.position.copy(poiWorldPos);
@@ -1408,22 +1528,28 @@
                 }
             }
             
-            updatePathVisuals() {
+            updatePathVisuals(isDragging = false) {
                 if (this.pathLine) {
                     this.scene.remove(this.pathLine);
+                    this.pathLine.geometry.dispose();
+                    this.pathLine.material.dispose();
+                    this.pathLine = null;
                 }
-                this.pathCurve = null; // Clear old curve
-                if (this.path.length < 2) {
-                    this.updateUI(); // Update button states
-                    return;
+                this.pathCurve = null;
+
+                if (this.path.length >= 2) {
+                    this.pathCurve = new THREE.CatmullRomCurve3(this.path);
+                    const points = this.pathCurve.getPoints(50);
+                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+                    this.pathLine = new THREE.Line(geometry, material);
+                    this.scene.add(this.pathLine);
                 }
 
-                this.pathCurve = new THREE.CatmullRomCurve3(this.path);
-                const points = this.pathCurve.getPoints(50);
-                const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
-                this.pathLine = new THREE.Line(geometry, material);
-                this.scene.add(this.pathLine);
+                if (!isDragging) {
+                    this.updateEditHelpers();
+                }
+
                 this.updateUI();
             }
 
@@ -1448,18 +1574,14 @@
                 const ctx = this.minimapCtx;
                 const { size, padding, worldSize } = this.minimapSettings;
                 
-                // Clear canvas
                 ctx.clearRect(0, 0, size, size);
                 
-                // Calculate center position for minimap
                 let centerX, centerZ;
                 if (this.state.minimapFollow) {
-                    // Follow ROV or camera position
                     const targetPos = this.state.cameraMode === 'FREE' ? this.camera.position : this.rov.position;
                     centerX = targetPos.x;
                     centerZ = targetPos.z;
                 } else {
-                    // Fixed center
                     centerX = 0;
                     centerZ = 0;
                 }
@@ -1468,13 +1590,11 @@
                 const offsetX = size / 2 - centerX * scale;
                 const offsetZ = size / 2 - centerZ * scale;
                 
-                // Helper function to convert world coordinates to minimap coordinates
                 const worldToMinimap = (x, z) => ({
                     x: x * scale + offsetX,
                     y: z * scale + offsetZ
                 });
                 
-                // Draw background grid
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
                 ctx.lineWidth = 1;
                 for (let i = -50; i <= 50; i += 10) {
@@ -1493,7 +1613,6 @@
                     ctx.stroke();
                 }
                 
-                // Draw path
                 if (this.path.length > 1) {
                     ctx.strokeStyle = '#ffff00';
                     ctx.lineWidth = 2;
@@ -1509,19 +1628,16 @@
                     ctx.stroke();
                 }
                 
-                // Draw structure (Christmas tree)
                 const structurePos = worldToMinimap(this.structure.position.x, this.structure.position.z);
                 ctx.fillStyle = '#fbbf24';
                 ctx.beginPath();
                 ctx.arc(structurePos.x, structurePos.y, 8, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Draw structure outline
                 ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2;
                 ctx.stroke();
                 
-                // Draw POIs
                 this.pois.forEach(poi => {
                     const poiWorldPos = new THREE.Vector3();
                     poi.mesh.getWorldPosition(poiWorldPos);
@@ -1536,14 +1652,12 @@
                     ctx.stroke();
                 });
                 
-                // Draw ROV
                 const rovPos = worldToMinimap(this.rov.position.x, this.rov.position.z);
                 ctx.fillStyle = '#3b82f6';
                 ctx.beginPath();
                 ctx.arc(rovPos.x, rovPos.y, 6, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Draw ROV direction indicator
                 const direction = new THREE.Vector3(0, 0, -1);
                 direction.applyQuaternion(this.rov.quaternion);
                 const directionEnd = worldToMinimap(
@@ -1558,12 +1672,10 @@
                 ctx.lineTo(directionEnd.x, directionEnd.y);
                 ctx.stroke();
                 
-                // Draw ROV outline
                 ctx.strokeStyle = '#1e40af';
                 ctx.lineWidth = 2;
                 ctx.stroke();
                 
-                // Draw camera position if in FREE mode
                 if (this.state.cameraMode === 'FREE') {
                     const cameraPos = worldToMinimap(this.camera.position.x, this.camera.position.z);
                     ctx.fillStyle = '#ef4444';
@@ -1576,7 +1688,6 @@
                     ctx.stroke();
                 }
                 
-                // Draw minimap border
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(0, 0, size, size);
@@ -1590,10 +1701,18 @@
                 this.renderer.setSize(this.sceneContainer.clientWidth, this.sceneContainer.clientHeight);
             }
             
-            addListItem(listElement, text, deleteCallback, teleportCallback) {
+            addListItem(listElement, text, waypointIndex, deleteCallback, teleportCallback) {
                 const item = document.createElement('div');
                 item.className = 'list-item';
-                
+
+                if (waypointIndex !== null && waypointIndex !== undefined) {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.dataset.waypointIndex = waypointIndex;
+                    checkbox.style.marginRight = '10px';
+                    item.appendChild(checkbox);
+                }
+
                 const textSpan = document.createElement('span');
                 textSpan.textContent = text;
                 textSpan.style.flexGrow = '1';
@@ -1603,7 +1722,7 @@
                     const tpBtn = document.createElement('button');
                     tpBtn.textContent = 'Go';
                     tpBtn.className = 'tp-btn';
-                    tpBtn.style.background = '#4ade80'; // bright green
+                    tpBtn.style.background = '#4ade80';
                     tpBtn.style.borderColor = '#22c55e';
                     tpBtn.style.color = '#15803d';
                     tpBtn.style.fontWeight = 'bold';
@@ -1615,32 +1734,36 @@
                 
                 item.appendChild(textSpan);
                 
-                const delBtn = document.createElement('button');
-                delBtn.textContent = 'X';
-                delBtn.className = 'del-btn';
-                delBtn.addEventListener('click', deleteCallback);
-                item.appendChild(delBtn);
+                if (deleteCallback) {
+                    const delBtn = document.createElement('button');
+                    delBtn.textContent = 'X';
+                    delBtn.className = 'del-btn';
+                    delBtn.addEventListener('click', deleteCallback);
+                    item.appendChild(delBtn);
+                }
                 
                 listElement.appendChild(item);
             }
             
-            findClosestPointOnPath(worldPoint) {
-                let closestPointIndex = null;
-                let minDistance = Infinity;
-
-                this.path.forEach((point, index) => {
-                    const distance = point.distanceTo(worldPoint);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestPointIndex = index;
-                    }
-                });
-
-                // Only consider it a "hit" if the click is reasonably close to a point
-                if (minDistance < 2.0) { // Adjust this threshold as needed
-                    return closestPointIndex;
+            updateEditHelpers() {
+                while (this.editHelpers.children.length > 0) {
+                    const child = this.editHelpers.children[0];
+                    this.editHelpers.remove(child);
                 }
-                return null;
+                this.interactionData.hoveredHelper = null;
+
+
+                if (!this.state.isEditingPath) {
+                    return;
+                }
+
+                const helperGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+
+                this.path.forEach(point => {
+                    const helper = new THREE.Mesh(helperGeometry, this.editHelperMaterial);
+                    helper.position.copy(point);
+                    this.editHelpers.add(helper);
+                });
             }
 
             saveData() {
@@ -1709,7 +1832,7 @@
                     }
                 };
                 reader.readAsText(file);
-                this.ui.loadInput.value = ''; // Reset for next load
+                this.ui.loadInput.value = '';
             }
 
             updateSpeedDisplay(value) {
