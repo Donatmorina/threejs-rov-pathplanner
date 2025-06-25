@@ -51,12 +51,67 @@
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
         .edit-mode-controls button { padding: 4px 8px; font-size: 0.8em; }
+
+        /* NEW: Mobile Controls */
+        #mobile-controls {
+            display: none; /* Hidden by default */
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 20;
+            width: 120px;
+            height: 120px;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 5px;
+        }
+        .mobile-btn {
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            font-size: 24px;
+            user-select: none;
+            -webkit-user-select: none; /* For Safari */
+        }
+        .mobile-btn:active {
+            background: rgba(0,0,0,0.8);
+        }
+        #arrow-up { grid-area: 1 / 2 / 2 / 3; }
+        #arrow-left { grid-area: 2 / 1 / 3 / 2; }
+        #arrow-right { grid-area: 2 / 3 / 3 / 4; }
+        #arrow-down { grid-area: 3 / 2 / 4 / 3; }
+
+        /* Media query for mobile devices */
+        @media (max-width: 768px) {
+            #mobile-controls {
+                display: grid;
+            }
+            #controls-panel {
+                position: fixed;
+                left: -100%; /* Hide by default */
+                top: 0;
+                height: 100%;
+                z-index: 100;
+                transition: left 0.3s ease;
+            }
+            #controls-panel:not(.hidden) {
+                left: 0;
+            }
+            #toggleControlsBtn {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                width: auto;
+                z-index: 110;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="controls-panel">
-            <button id="toggleControlsBtn">Hide Controls</button>
+            <button id="toggleControlsBtn">Menu</button>
             <h3>ROV Controls</h3>
             <div class="control-group">
                 <h4>Flight Recorder</h4>
@@ -92,6 +147,7 @@
             </div>
             <div class="control-group">
                 <h4>Data</h4>
+                <button id="undoBtn" disabled>Undo</button>
                 <button id="saveBtn" disabled>Save Path</button>
                 <button id="loadBtn">Load Path</button>
                 <button id="clearBtn">Clear All</button>
@@ -129,6 +185,12 @@
                     <button class="minimap-btn" id="minimap-toggle">Hide</button>
                     <button class="minimap-btn" id="minimap-follow">Follow</button>
                 </div>
+            </div>
+            <div id="mobile-controls">
+                <button id="arrow-up" class="mobile-btn">▲</button>
+                <button id="arrow-left" class="mobile-btn">◀</button>
+                <button id="arrow-right" class="mobile-btn">▶</button>
+                <button id="arrow-down" class="mobile-btn">▼</button>
             </div>
         </div>
     </div>
@@ -178,6 +240,7 @@
                     isDragging: false,
                     previousMouseX: 0,
                     draggedPointIndex: null,
+                    selectedPointIndex: null,
                     originalDraggedPointPosition: null,
                     originalPath: [],
                     hoveredHelper: null,
@@ -186,6 +249,8 @@
                 // --- Data & Visuals ---
                 this.path = [];
                 this.pois = [];
+                this.history = [];
+                this.redoStack = [];
                 this.pathCurve = null;
                 this.pathLine = null;
                 this.playbackTime = 0;
@@ -200,6 +265,10 @@
                     color: 0xffa500,
                     transparent: true,
                     opacity: 0.7
+                });
+                this.editHelperSelectedMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xff4500,
+                    transparent: false
                 });
 
                 this.initialize();
@@ -788,7 +857,7 @@
 
             bindEventListeners() {
                 window.addEventListener('resize', () => this.onWindowResize());
-                window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
+                window.addEventListener('keydown', (e) => this.onKeyDown(e));
                 window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
                 
                 this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -806,6 +875,7 @@
                     switchViewBtn: document.getElementById('switchViewBtn'),
                     freeViewBtn: document.getElementById('freeViewBtn'),
                     rotateStructureBtn: document.getElementById('rotateStructureBtn'),
+                    undoBtn: document.getElementById('undoBtn'),
                     saveBtn: document.getElementById('saveBtn'),
                     loadBtn: document.getElementById('loadBtn'),
                     loadInput: document.getElementById('loadInput'),
@@ -831,6 +901,10 @@
                     editModeFreeBtn: document.getElementById('editModeFreeBtn'),
                     editModeHorizontalBtn: document.getElementById('editModeHorizontalBtn'),
                     editModeVerticalBtn: document.getElementById('editModeVerticalBtn'),
+                    arrowUp: document.getElementById('arrow-up'),
+                    arrowDown: document.getElementById('arrow-down'),
+                    arrowLeft: document.getElementById('arrow-left'),
+                    arrowRight: document.getElementById('arrow-right'),
                 };
 
                 this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
@@ -845,6 +919,7 @@
                 this.ui.markPoiBtn.addEventListener('click', () => this.handleMarkPOIAtROV());
                 this.ui.markOnStructureBtn.addEventListener('click', () => this.enterMarkOnStructureMode());
                 this.ui.rotateStructureBtn.addEventListener('click', () => this.toggleRotateMode());
+                this.ui.undoBtn.addEventListener('click', () => this.handleUndo());
                 this.ui.saveBtn.addEventListener('click', () => this.saveData());
                 this.ui.loadBtn.addEventListener('click', () => this.ui.loadInput.click());
                 this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
@@ -858,6 +933,16 @@
                 this.ui.editModeFreeBtn.addEventListener('click', () => this.handleEditModeChange('free'));
                 this.ui.editModeHorizontalBtn.addEventListener('click', () => this.handleEditModeChange('horizontal'));
                 this.ui.editModeVerticalBtn.addEventListener('click', () => this.handleEditModeChange('vertical'));
+
+                // Touch controls
+                const bindTouch = (element, key) => {
+                    element.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[key] = true; }, { passive: false });
+                    element.addEventListener('touchend', (e) => { e.preventDefault(); this.keys[key] = false; });
+                };
+                bindTouch(this.ui.arrowUp, 'KeyW');
+                bindTouch(this.ui.arrowDown, 'KeyS');
+                bindTouch(this.ui.arrowLeft, 'KeyA');
+                bindTouch(this.ui.arrowRight, 'KeyD');
             }
 
             // --- 2. EVENT HANDLERS & CORE LOGIC ---
@@ -876,16 +961,30 @@
                 this.state.editModeConstraint = mode;
                 this.updateUI();
             }
+            
+            handleUndo() {
+                if (this.history.length > 0) {
+                    const lastState = this.history.pop();
+                    this.path = lastState;
+                    this.deselectPoint();
+                    this.updatePathVisuals();
+                    this.updateUI();
+                    this.updateStatus('Undo successful.');
+                } else {
+                    this.updateStatus('Nothing to undo.');
+                }
+            }
+
+            saveStateForUndo() {
+                const currentState = this.path.map(p => p.clone());
+                this.history.push(currentState);
+                this.redoStack = [];
+                this.updateUI();
+            }
 
             handleToggleControls() {
                 const controlsPanel = document.getElementById('controls-panel');
                 controlsPanel.classList.toggle('hidden');
-                const isHidden = controlsPanel.classList.contains('hidden');
-                this.ui.toggleControlsBtn.textContent = isHidden ? 'Show Controls' : 'Hide Controls';
-
-                setTimeout(() => {
-                    this.onWindowResize();
-                }, 300);
             }
 
             handleRecord() {
@@ -911,6 +1010,7 @@
                     this.path = [];
                     this.updateStatus('Path too short, cleared.');
                 } else {
+                    this.saveStateForUndo();
                     this.updatePathVisuals();
                     this.updateStatus('Path recorded.');
                 }
@@ -978,6 +1078,7 @@
                     }
                 });
                 this.pois = [];
+                this.history = [];
                 if (this.pathLine) this.scene.remove(this.pathLine);
                 this.pathLine = null;
                 this.pathCurve = null;
@@ -1042,11 +1143,17 @@
             toggleEditMode() {
                 this.state.isEditingPath = !this.state.isEditingPath;
                 this.ui.proportionalEditControls.style.display = this.state.isEditingPath ? 'block' : 'none';
+                
+                if (!this.state.isEditingPath) {
+                    this.deselectPoint();
+                }
+
                 if (this.state.isEditingPath) {
-                    this.updateStatus('Path editing enabled. Drag points to move them.');
+                    this.updateStatus('Path editing enabled. Click to select a point, then use mouse or WASD to move.');
                 } else {
                     this.updateStatus('Path editing disabled.');
                 }
+
                 this.updateEditHelpers();
                 this.updateUI();
             }
@@ -1063,15 +1170,31 @@
                     return;
                 }
 
+                this.saveStateForUndo();
+
                 indicesToDelete.sort((a, b) => b - a);
 
                 indicesToDelete.forEach(index => {
                     this.path.splice(index, 1);
                 });
 
+                this.deselectPoint();
                 this.updatePathVisuals();
                 this.updateUI();
                 this.updateStatus(`Deleted ${indicesToDelete.length} waypoint(s).`);
+            }
+            
+            onKeyDown(event) {
+                this.keys[event.code] = true;
+                
+                if (event.code === 'Escape' && this.state.isEditingPath) {
+                    this.deselectPoint();
+                }
+
+                if (event.ctrlKey && event.code === 'KeyZ') {
+                    event.preventDefault();
+                    this.handleUndo();
+                }
             }
 
             onMouseDown(event) {
@@ -1080,17 +1203,23 @@
                 const rect = this.renderer.domElement.getBoundingClientRect();
                 this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
                 this.raycaster.setFromCamera(this.mouse, this.camera);
                 
-                if (this.state.isEditingPath && this.interactionData.hoveredHelper) {
-                    const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
-                    if (pointIndex !== -1) {
-                        this.interactionData.draggedPointIndex = pointIndex;
-                        this.interactionData.originalDraggedPointPosition = this.path[pointIndex].clone();
-                        this.interactionData.originalPath = this.path.map(p => p.clone());
-                        this.orbitControls.enabled = false;
-                        this.updateStatus(`Editing point ${pointIndex}. Drag to move.`);
+                if (this.state.isEditingPath) {
+                    if (this.interactionData.hoveredHelper) {
+                        const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
+                        if (pointIndex !== -1) {
+                            this.selectPoint(pointIndex);
+                            
+                            this.interactionData.draggedPointIndex = pointIndex;
+                            this.saveStateForUndo();
+                            this.interactionData.originalDraggedPointPosition = this.path[pointIndex].clone();
+                            this.interactionData.originalPath = this.path.map(p => p.clone());
+                            this.orbitControls.enabled = false;
+                            this.updateStatus(`Dragging point ${pointIndex}.`);
+                        }
+                    } else {
+                        this.deselectPoint();
                     }
                 } else if (this.state.isMarkingOnStructure) {
                     const intersects = this.raycaster.intersectObject(this.structure, true);
@@ -1136,13 +1265,11 @@
                             break;
 
                         case 'vertical':
-                            // Create a vertical plane that faces the camera
-                            const cameraRight = new THREE.Vector3().set(this.camera.matrix.elements[0], this.camera.matrix.elements[1], this.camera.matrix.elements[2]);
+                            const cameraRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
                             const planeNormal = cameraRight.cross(this.camera.up).normalize();
                             plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, originalPoint);
                             this.raycaster.ray.intersectPlane(plane, intersectPoint);
                             
-                            // Constrain to vertical movement
                             intersectPoint.x = originalPoint.x;
                             intersectPoint.z = originalPoint.z;
                             
@@ -1161,26 +1288,7 @@
                     }
             
                     if (moveDelta) {
-                        for (let i = 0; i < this.path.length; i++) {
-                            const pointToMove = this.interactionData.originalPath[i];
-                            const distance = pointToMove.distanceTo(originalPoint);
-            
-                            let influence = 0;
-                            if (this.editFalloff > 0 && distance < this.editFalloff) {
-                                const normalizedDistance = distance / this.editFalloff;
-                                influence = (Math.cos(normalizedDistance * Math.PI) + 1) / 2;
-                            }
-            
-                            if (i === this.interactionData.draggedPointIndex) {
-                                influence = 1;
-                            }
-                            
-                            const influencedDelta = moveDelta.clone().multiplyScalar(influence);
-                            this.path[i].copy(pointToMove).add(influencedDelta);
-            
-                            this.editHelpers.children[i].position.copy(this.path[i]);
-                        }
-                        this.updatePathVisuals(true);
+                        this.applyProportionalMove(this.interactionData.draggedPointIndex, moveDelta);
                     }
                 }
             }
@@ -1189,10 +1297,8 @@
             onMouseUp() {
                 if (this.interactionData.draggedPointIndex !== null) {
                     this.interactionData.draggedPointIndex = null;
-                    this.interactionData.originalDraggedPointPosition = null;
-                    this.interactionData.originalPath = [];
+                    this.updateStatus(`Point ${this.interactionData.selectedPointIndex} selected. Use WASD to move or Esc to deselect.`);
                     this.orbitControls.enabled = true;
-                    this.updateStatus('Path editing enabled.');
                     this.updatePathVisuals();
                 }
                 if (this.interactionData.isDragging) {
@@ -1242,32 +1348,87 @@
             animate() {
                 requestAnimationFrame(() => this.animate());
                 const deltaTime = this.clock.getDelta();
-                const elapsedTime = this.clock.getElapsedTime();
 
                 this.updateHoverEffect();
 
-                if (!this.state.isPlaying) {
-                    this.updateROVMovement(deltaTime);
-                } else {
-                    this.updatePlayback(deltaTime);
-                }
-                
-                if (this.state.cameraMode === 'FREE') {
+                if (this.state.isEditingPath && this.interactionData.selectedPointIndex !== null) {
+                    this.handleKeyboardWaypointEditing(deltaTime);
+                } else if (this.state.cameraMode === 'FREE') {
                     this.updateFreeCameraMovement(deltaTime);
+                } else if (!this.state.isPlaying) {
+                    this.updateROVMovement(deltaTime);
+                }
+
+                if (this.state.isPlaying) {
+                     this.updatePlayback(deltaTime);
                 }
                 
                 this.updateCamera();
                 this.updateCoordinateDisplay();
                 this.updateMinimap();
-                this.updateFish(deltaTime, elapsedTime);
-                this.updateSeaweed(elapsedTime);
+                this.updateFish(deltaTime, this.clock.getElapsedTime());
+                this.updateSeaweed(this.clock.getElapsedTime());
                 this.renderer.render(this.scene, this.camera);
             }
             
+            handleKeyboardWaypointEditing(deltaTime) {
+                const moveSpeed = 2.0 * deltaTime;
+                const moveDelta = new THREE.Vector3();
+
+                const cameraRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
+                const cameraUp = new THREE.Vector3().copy(this.camera.up);
+
+                if (this.keys['KeyW']) moveDelta.add(cameraUp);
+                if (this.keys['KeyS']) moveDelta.sub(cameraUp);
+                if (this.keys['KeyA']) moveDelta.sub(cameraRight);
+                if (this.keys['KeyD']) moveDelta.add(cameraRight);
+
+                if (moveDelta.lengthSq() > 0) {
+                    if (this.state.editModeConstraint === 'horizontal') moveDelta.y = 0;
+                    if (this.state.editModeConstraint === 'vertical') {
+                        moveDelta.x = 0;
+                        moveDelta.z = 0;
+                    }
+                    
+                    moveDelta.normalize().multiplyScalar(moveSpeed);
+                    
+                    this.saveStateForUndo();
+                    this.interactionData.originalPath = this.path.map(p => p.clone());
+                    
+                    this.applyProportionalMove(this.interactionData.selectedPointIndex, moveDelta);
+                }
+            }
+
+
+            applyProportionalMove(selectedIndex, moveDelta) {
+                const originalPoint = this.interactionData.originalPath[selectedIndex];
+                for (let i = 0; i < this.path.length; i++) {
+                    const pointToMove = this.interactionData.originalPath[i];
+                    const distance = pointToMove.distanceTo(originalPoint);
+            
+                    let influence = 0;
+                    if (i === selectedIndex) {
+                        influence = 1;
+                    } else if (this.editFalloff > 0 && distance < this.editFalloff) {
+                        const normalizedDistance = distance / this.editFalloff;
+                        influence = (Math.cos(normalizedDistance * Math.PI) + 1) / 2;
+                    }
+            
+                    const influencedDelta = moveDelta.clone().multiplyScalar(influence);
+                    this.path[i].copy(pointToMove).add(influencedDelta);
+            
+                    this.editHelpers.children[i].position.copy(this.path[i]);
+                }
+                this.updatePathVisuals(true);
+            }
+
+
             updateHoverEffect() {
                 if (!this.state.isEditingPath || this.interactionData.draggedPointIndex !== null) {
                     if (this.interactionData.hoveredHelper) {
-                        this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                        if (this.editHelpers.children.indexOf(this.interactionData.hoveredHelper) !== this.interactionData.selectedPointIndex) {
+                           this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                        }
                         this.interactionData.hoveredHelper = null;
                     }
                     return;
@@ -1276,60 +1437,58 @@
                 this.raycaster.setFromCamera(this.mouse, this.camera);
                 const intersects = this.raycaster.intersectObjects(this.editHelpers.children);
             
+                const oldHovered = this.interactionData.hoveredHelper;
+                let newHovered = null;
+
                 if (intersects.length > 0) {
-                    const newHovered = intersects[0].object;
-                    if (this.interactionData.hoveredHelper !== newHovered) {
-                        if (this.interactionData.hoveredHelper) {
-                            this.interactionData.hoveredHelper.material = this.editHelperMaterial;
-                        }
-                        this.interactionData.hoveredHelper = newHovered;
-                        this.interactionData.hoveredHelper.material = this.editHelperHighlightMaterial;
+                    newHovered = intersects[0].object;
+                }
+
+                if (oldHovered !== newHovered) {
+                    if (oldHovered && this.editHelpers.children.indexOf(oldHovered) !== this.interactionData.selectedPointIndex) {
+                        oldHovered.material = this.editHelperMaterial;
                     }
-                } else {
-                    if (this.interactionData.hoveredHelper) {
-                        this.interactionData.hoveredHelper.material = this.editHelperMaterial;
-                        this.interactionData.hoveredHelper = null;
+
+                    if (newHovered && this.editHelpers.children.indexOf(newHovered) !== this.interactionData.selectedPointIndex) {
+                         newHovered.material = this.editHelperHighlightMaterial;
                     }
+                    this.interactionData.hoveredHelper = newHovered;
                 }
             }
 
             updateFreeCameraMovement(deltaTime) {
-                const cameraMoveSpeed = 15.0;
-                
+                const cameraMoveSpeed = 15.0 * deltaTime;
                 const moveDirection = new THREE.Vector3();
-                if (this.keys['ArrowUp'] || this.keys['KeyW']) moveDirection.z = -1;
-                if (this.keys['ArrowDown'] || this.keys['KeyS']) moveDirection.z = 1;
-                if (this.keys['ArrowLeft'] || this.keys['KeyA']) moveDirection.x = -1;
-                if (this.keys['ArrowRight'] || this.keys['KeyD']) moveDirection.x = 1;
+
+                if (this.keys['KeyW']) moveDirection.z = -1;
+                if (this.keys['KeyS']) moveDirection.z = 1;
+                if (this.keys['KeyA']) moveDirection.x = -1;
+                if (this.keys['KeyD']) moveDirection.x = 1;
                 
                 moveDirection.normalize().applyQuaternion(this.camera.quaternion);
-                this.camera.position.add(moveDirection.multiplyScalar(cameraMoveSpeed * deltaTime));
+                this.camera.position.add(moveDirection.multiplyScalar(cameraMoveSpeed));
 
-                if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed * deltaTime;
-                if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed * deltaTime;
+                if (this.keys['KeyE']) this.camera.position.y += cameraMoveSpeed;
+                if (this.keys['KeyQ']) this.camera.position.y -= cameraMoveSpeed;
                 
                 this.orbitControls.target.copy(this.camera.position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(this.camera.quaternion));
             }
             
             updateROVMovement(deltaTime) {
-                if (this.state.cameraMode === 'FREE') return; 
+                const moveSpeed = this.rovSpeed * deltaTime;
+                const turnSpeed = 2.0 * deltaTime;
 
-                const moveSpeed = this.rovSpeed;
-                const turnSpeed = 2.0;
-
-                const currentPosition = this.rov.position.clone();
-
-                if (this.keys['ArrowUp'] || this.keys['KeyW']) this.rov.translateZ(-moveSpeed * deltaTime);
-                if (this.keys['ArrowDown'] || this.keys['KeyS']) this.rov.translateZ(moveSpeed * deltaTime);
-                if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.rov.rotateY(turnSpeed * deltaTime);
-                if (this.keys['ArrowRight'] || this.keys['KeyD']) this.rov.rotateY(-turnSpeed * deltaTime);
-                if (this.keys['KeyE']) this.rov.position.y += moveSpeed * deltaTime;
-                if (this.keys['KeyQ']) this.rov.position.y -= moveSpeed * deltaTime;
+                if (this.keys['KeyW']) this.rov.translateZ(-moveSpeed);
+                if (this.keys['KeyS']) this.rov.translateZ(moveSpeed);
+                if (this.keys['KeyA']) this.rov.rotateY(turnSpeed);
+                if (this.keys['KeyD']) this.rov.rotateY(-turnSpeed);
+                if (this.keys['KeyR']) this.rov.position.y += moveSpeed;
+                if (this.keys['KeyF']) this.rov.position.y -= moveSpeed;
 
                 const rovBottom = this.rov.position.y - 0.5;
                 if (rovBottom < this.seabedHeight) {
                     this.rov.position.y = this.seabedHeight + 0.5;
-                    if (this.keys['KeyQ']) {
+                    if (this.keys['KeyF']) {
                         this.updateStatus('ROV touching seabed');
                     }
                 }
@@ -1461,6 +1620,7 @@
                 this.ui.playBackwardsBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
                 this.ui.resumeBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
                 this.ui.editPathBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isPlaying || isRotatingStructure;
+                this.ui.undoBtn.disabled = this.history.length === 0;
                 this.ui.saveBtn.disabled = isInteracting || !(hasMultiplePoints || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
                 this.ui.clearBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
@@ -1695,6 +1855,27 @@
 
             // --- 4. UTILITIES & HELPERS ---
             
+            selectPoint(index) {
+                if (this.interactionData.selectedPointIndex !== null && this.interactionData.selectedPointIndex < this.editHelpers.children.length) {
+                    this.editHelpers.children[this.interactionData.selectedPointIndex].material = this.editHelperMaterial;
+                }
+                this.interactionData.selectedPointIndex = index;
+                if (index !== null && index < this.editHelpers.children.length) {
+                    this.editHelpers.children[index].material = this.editHelperSelectedMaterial;
+                    this.updateStatus(`Point ${index} selected. Use WASD to move or Esc to deselect.`);
+                }
+            }
+
+            deselectPoint() {
+                if (this.interactionData.selectedPointIndex !== null && this.interactionData.selectedPointIndex < this.editHelpers.children.length) {
+                    this.editHelpers.children[this.interactionData.selectedPointIndex].material = this.editHelperMaterial;
+                }
+                this.interactionData.selectedPointIndex = null;
+                if (this.state.isEditingPath) {
+                    this.updateStatus('Path editing enabled.');
+                }
+            }
+
             onWindowResize() {
                 this.camera.aspect = this.sceneContainer.clientWidth / this.sceneContainer.clientHeight;
                 this.camera.updateProjectionMatrix();
@@ -1754,13 +1935,18 @@
 
 
                 if (!this.state.isEditingPath) {
+                    this.deselectPoint();
                     return;
                 }
 
                 const helperGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
 
-                this.path.forEach(point => {
-                    const helper = new THREE.Mesh(helperGeometry, this.editHelperMaterial);
+                this.path.forEach((point, i) => {
+                    let material = this.editHelperMaterial;
+                    if (i === this.interactionData.selectedPointIndex) {
+                        material = this.editHelperSelectedMaterial;
+                    }
+                    const helper = new THREE.Mesh(helperGeometry, material);
                     helper.position.copy(point);
                     this.editHelpers.add(helper);
                 });
