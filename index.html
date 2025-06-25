@@ -52,9 +52,8 @@
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
         .edit-mode-controls button { padding: 4px 8px; font-size: 0.8em; }
 
-        /* NEW: Mobile Controls */
         #mobile-controls {
-            display: none; /* Hidden by default */
+            display: none;
             position: fixed;
             bottom: 20px;
             right: 20px;
@@ -72,7 +71,7 @@
             border-radius: 8px;
             font-size: 24px;
             user-select: none;
-            -webkit-user-select: none; /* For Safari */
+            -webkit-user-select: none;
         }
         .mobile-btn:active {
             background: rgba(0,0,0,0.8);
@@ -82,14 +81,13 @@
         #arrow-right { grid-area: 2 / 3 / 3 / 4; }
         #arrow-down { grid-area: 3 / 2 / 4 / 3; }
 
-        /* Media query for mobile devices */
         @media (max-width: 768px) {
             #mobile-controls {
                 display: grid;
             }
             #controls-panel {
                 position: fixed;
-                left: -100%; /* Hide by default */
+                left: -100%;
                 top: 0;
                 height: 100%;
                 z-index: 100;
@@ -863,6 +861,9 @@
                 this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
                 this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
                 window.addEventListener('mouseup', () => this.onMouseUp());
+                this.renderer.domElement.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+                this.renderer.domElement.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+                window.addEventListener('touchend', () => this.onTouchEnd());
 
 
                 this.ui = {
@@ -934,7 +935,6 @@
                 this.ui.editModeHorizontalBtn.addEventListener('click', () => this.handleEditModeChange('horizontal'));
                 this.ui.editModeVerticalBtn.addEventListener('click', () => this.handleEditModeChange('vertical'));
 
-                // Touch controls
                 const bindTouch = (element, key) => {
                     element.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[key] = true; }, { passive: false });
                     element.addEventListener('touchend', (e) => { e.preventDefault(); this.keys[key] = false; });
@@ -1196,21 +1196,19 @@
                     this.handleUndo();
                 }
             }
-
-            onMouseDown(event) {
-                if (event.target !== this.renderer.domElement) return;
-
-                const rect = this.renderer.domElement.getBoundingClientRect();
-                this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            // --- NEW: Unified handlers for mouse and touch ---
+            handlePointerDown(x, y) {
+                 const rect = this.renderer.domElement.getBoundingClientRect();
+                this.mouse.x = ((x - rect.left) / rect.width) * 2 - 1;
+                this.mouse.y = -((y - rect.top) / rect.height) * 2 + 1;
                 this.raycaster.setFromCamera(this.mouse, this.camera);
-                
+
                 if (this.state.isEditingPath) {
                     if (this.interactionData.hoveredHelper) {
                         const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
                         if (pointIndex !== -1) {
                             this.selectPoint(pointIndex);
-                            
                             this.interactionData.draggedPointIndex = pointIndex;
                             this.saveStateForUndo();
                             this.interactionData.originalDraggedPointPosition = this.path[pointIndex].clone();
@@ -1228,29 +1226,28 @@
                         this.state.isMarkingOnStructure = false;
                     } else {
                         this.updateStatus('Missed! Click on the yellow structure.');
-                        this.state.isMarkingOnStructure = false;
                     }
                     this.updateUI();
                 } else if (this.state.isRotatingStructure) {
-                    const intersects = this.raycaster.intersectObject(this.structure, true);
+                     const intersects = this.raycaster.intersectObject(this.structure, true);
                     if (intersects.length > 0) {
                         this.interactionData.isDragging = true;
-                        this.interactionData.previousMouseX = event.clientX;
+                        this.interactionData.previousMouseX = x;
                         this.orbitControls.enabled = false;
                     }
                 }
             }
-
-            onMouseMove(event) {
+            
+            handlePointerMove(x, y) {
                 const rect = this.renderer.domElement.getBoundingClientRect();
-                this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                this.mouse.x = ((x - rect.left) / rect.width) * 2 - 1;
+                this.mouse.y = -((y - rect.top) / rect.height) * 2 + 1;
                 this.raycaster.setFromCamera(this.mouse, this.camera);
 
                 if (this.interactionData.isDragging) {
-                    const deltaX = event.clientX - this.interactionData.previousMouseX;
+                    const deltaX = x - this.interactionData.previousMouseX;
                     this.structure.rotation.y += deltaX * 0.01;
-                    this.interactionData.previousMouseX = event.clientX;
+                    this.interactionData.previousMouseX = x;
                 } else if (this.state.isEditingPath && this.interactionData.draggedPointIndex !== null) {
                     const originalPoint = this.interactionData.originalDraggedPointPosition;
                     let intersectPoint = new THREE.Vector3();
@@ -1263,25 +1260,17 @@
                             this.raycaster.ray.intersectPlane(plane, intersectPoint);
                             moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
                             break;
-
                         case 'vertical':
                             const cameraRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
                             const planeNormal = cameraRight.cross(this.camera.up).normalize();
                             plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, originalPoint);
                             this.raycaster.ray.intersectPlane(plane, intersectPoint);
-                            
                             intersectPoint.x = originalPoint.x;
                             intersectPoint.z = originalPoint.z;
-                            
                             moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
                             break;
-
-                        case 'free':
                         default:
-                            plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
-                                this.camera.getWorldDirection(new THREE.Vector3()).negate(),
-                                originalPoint
-                            );
+                            plane = new THREE.Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new THREE.Vector3()).negate(), originalPoint);
                             this.raycaster.ray.intersectPlane(plane, intersectPoint);
                             moveDelta = new THREE.Vector3().subVectors(intersectPoint, originalPoint);
                             break;
@@ -1293,9 +1282,8 @@
                 }
             }
 
-
-            onMouseUp() {
-                if (this.interactionData.draggedPointIndex !== null) {
+            handlePointerUp() {
+                 if (this.interactionData.draggedPointIndex !== null) {
                     this.interactionData.draggedPointIndex = null;
                     this.updateStatus(`Point ${this.interactionData.selectedPointIndex} selected. Use WASD to move or Esc to deselect.`);
                     this.orbitControls.enabled = true;
@@ -1308,6 +1296,20 @@
                     }
                 }
             }
+            
+            onMouseDown(event) { this.handlePointerDown(event.clientX, event.clientY); }
+            onMouseMove(event) { this.handlePointerMove(event.clientX, event.clientY); }
+            onMouseUp() { this.handlePointerUp(); }
+            
+            onTouchStart(event) {
+                event.preventDefault();
+                this.handlePointerDown(event.touches[0].clientX, event.touches[0].clientY);
+            }
+            onTouchMove(event) {
+                event.preventDefault();
+                this.handlePointerMove(event.touches[0].clientX, event.touches[0].clientY);
+            }
+            onTouchEnd() { this.handlePointerUp(); }
 
 
             createPOI(position, onStructure = false) {
