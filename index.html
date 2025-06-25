@@ -1291,16 +1291,33 @@
                 }
             }
             
-            handlePointerDown(x, y) {
-                 const rect = this.renderer.domElement.getBoundingClientRect();
+            handlePointerDown(x, y, isTouchEvent = false) {
+                const rect = this.renderer.domElement.getBoundingClientRect();
                 this.mouse.x = ((x - rect.left) / rect.width) * 2 - 1;
                 this.mouse.y = -((y - rect.top) / rect.height) * 2 + 1;
                 this.raycaster.setFromCamera(this.mouse, this.camera);
 
                 if (this.state.isEditingPath && !this.state.isCyclingWaypoints) {
-                    if (this.interactionData.hoveredHelper) {
-                        const pointIndex = this.editHelpers.children.indexOf(this.interactionData.hoveredHelper);
-                        if (pointIndex !== -1) {
+                    const intersects = this.raycaster.intersectObjects(this.editHelpers.children);
+                    const newHovered = intersects.length > 0 ? intersects[0].object : null;
+
+                    if (newHovered) {
+                        const pointIndex = this.editHelpers.children.indexOf(newHovered);
+                        if (isTouchEvent) {
+                            if (this.interactionData.hoveredHelper === newHovered) {
+                                // Second tap on the same helper: select it
+                                this.selectPoint(pointIndex);
+                            } else {
+                                // First tap: just highlight it
+                                if (this.interactionData.hoveredHelper) {
+                                    this.interactionData.hoveredHelper.material = this.editHelperMaterial;
+                                }
+                                this.interactionData.hoveredHelper = newHovered;
+                                newHovered.material = this.editHelperHighlightMaterial;
+                                this.deselectPoint(); // Deselect any previously selected point
+                            }
+                        } else {
+                            // Mouse click: select and prepare for dragging
                             this.selectPoint(pointIndex);
                             this.interactionData.draggedPointIndex = pointIndex;
                             this.saveStateForUndo();
@@ -1395,7 +1412,7 @@
                 }
             }
             
-            onMouseDown(event) { this.handlePointerDown(event.clientX, event.clientY); }
+            onMouseDown(event) { this.handlePointerDown(event.clientX, event.clientY, false); }
             onMouseMove(event) { this.handlePointerMove(event.clientX, event.clientY); }
             onMouseUp() { this.handlePointerUp(false); }
             onMouseWheel(event) {
@@ -1418,7 +1435,7 @@
             
             onTouchStart(event) {
                 event.preventDefault();
-                this.handlePointerDown(event.touches[0].clientX, event.touches[0].clientY);
+                this.handlePointerDown(event.touches[0].clientX, event.touches[0].clientY, true);
             }
             onTouchMove(event) {
                 event.preventDefault();
@@ -2001,7 +2018,7 @@
                         newListItem.scrollIntoView({ block: 'nearest' });
                     }
 
-                    this.updateStatus(`Point ${index} selected. Use WASD to move or Esc to deselect.`);
+                    this.updateStatus(`Point ${index} selected. Use WASD/Arrows to move.`);
                 }
             }
 
