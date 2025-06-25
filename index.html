@@ -15,11 +15,11 @@
             border-right: 1px solid #ccc;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
             transition: width 0.3s ease, padding 0.3s ease;
-            flex-shrink: 0; /* Prevent panel from shrinking on its own */
+            flex-shrink: 0;
         }
         #controls-panel.hidden {
             width: 0;
-            padding: 0 15px; /* Keep padding for the button to be visible */
+            padding: 0 15px;
             border-right: none;
             overflow: hidden;
         }
@@ -860,10 +860,10 @@
                 
                 this.renderer.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
                 this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
-                window.addEventListener('mouseup', () => this.onMouseUp());
+                window.addEventListener('mouseup', (e) => this.onMouseUp(e));
                 this.renderer.domElement.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
                 this.renderer.domElement.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
-                window.addEventListener('touchend', () => this.onTouchEnd());
+                window.addEventListener('touchend', (e) => this.onTouchEnd(e));
 
 
                 this.ui = {
@@ -1197,7 +1197,6 @@
                 }
             }
             
-            // --- NEW: Unified handlers for mouse and touch ---
             handlePointerDown(x, y) {
                  const rect = this.renderer.domElement.getBoundingClientRect();
                 this.mouse.x = ((x - rect.left) / rect.width) * 2 - 1;
@@ -1282,12 +1281,17 @@
                 }
             }
 
-            handlePointerUp() {
+            handlePointerUp(isTouchEvent = false) {
                  if (this.interactionData.draggedPointIndex !== null) {
                     this.interactionData.draggedPointIndex = null;
-                    this.updateStatus(`Point ${this.interactionData.selectedPointIndex} selected. Use WASD to move or Esc to deselect.`);
                     this.orbitControls.enabled = true;
                     this.updatePathVisuals();
+                    
+                    if (isTouchEvent) {
+                        this.deselectPoint();
+                    } else {
+                        this.updateStatus(`Point ${this.interactionData.selectedPointIndex} selected. Use WASD to move or Esc to deselect.`);
+                    }
                 }
                 if (this.interactionData.isDragging) {
                     this.interactionData.isDragging = false;
@@ -1299,7 +1303,7 @@
             
             onMouseDown(event) { this.handlePointerDown(event.clientX, event.clientY); }
             onMouseMove(event) { this.handlePointerMove(event.clientX, event.clientY); }
-            onMouseUp() { this.handlePointerUp(); }
+            onMouseUp() { this.handlePointerUp(false); }
             
             onTouchStart(event) {
                 event.preventDefault();
@@ -1309,7 +1313,7 @@
                 event.preventDefault();
                 this.handlePointerMove(event.touches[0].clientX, event.touches[0].clientY);
             }
-            onTouchEnd() { this.handlePointerUp(); }
+            onTouchEnd() { this.handlePointerUp(true); }
 
 
             createPOI(position, onStructure = false) {
