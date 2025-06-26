@@ -380,6 +380,12 @@
                     <div id="poi-list" class="list-container">None</div>
                 </div>
             </div>
+            <div class="control-group">
+                <h4 class="collapsible">Minimap</h4>
+                <div class="collapsible-content">
+                    <button id="minimapToggleMenuBtn">Hide Minimap</button>
+                </div>
+            </div>
         </div>
         <div id="scene-container">
             <div id="status-bar">Ready</div>
@@ -387,7 +393,6 @@
             <div id="minimap-container">
                 <canvas id="minimap-canvas"></canvas>
                 <div class="minimap-controls">
-                    <button class="minimap-btn" id="minimap-toggle">Hide</button>
                     <button class="minimap-btn" id="minimap-follow">Follow</button>
                 </div>
             </div>
@@ -403,8 +408,8 @@
             <button id="editModeCycleBtnFloat">Axis: Free</button>
         </div>
         <div id="ascend-descend-panel" style="display:none;">
-            <button id="ascendBtnMobile" style="font-size:1.2em;">Ascend ▲</button>
-            <button id="descendBtnMobile" style="font-size:1.2em;">Descend ▼</button>
+            <button id="ascendBtnMobile" style="font-size:1.2em;">▲</button>
+            <button id="descendBtnMobile" style="font-size:1.2em;">▼</button>
         </div>
     </div>
 
@@ -1115,7 +1120,7 @@
                     speedValue: document.getElementById('speedValue'),
                     rovSpeed: document.getElementById('rovSpeed'),
                     rovSpeedValue: document.getElementById('rovSpeedValue'),
-                    minimapToggle: document.getElementById('minimap-toggle'),
+                    minimapToggleMenuBtn: document.getElementById('minimapToggleMenuBtn'),
                     minimapFollow: document.getElementById('minimap-follow'),
                     minimapContainer: document.getElementById('minimap-container'),
                     toggleControlsBtn: document.getElementById('toggleControlsBtn'),
@@ -1160,7 +1165,7 @@
                 this.ui.teleportDropdown.addEventListener('change', (e) => this.handleTeleport(e));
                 this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
                 this.ui.rovSpeed.addEventListener('input', (e) => this.handleRovSpeedChange(e.target.value));
-                this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
+                this.ui.minimapToggleMenuBtn.addEventListener('click', () => this.toggleMinimap());
                 this.ui.minimapFollow.addEventListener('click', () => this.toggleMinimapFollow());
                 this.ui.toggleControlsBtn.addEventListener('click', () => this.handleToggleControls());
                 this.ui.editFalloff.addEventListener('input', (e) => this.handleFalloffChange(e.target.value));
@@ -2062,7 +2067,7 @@
                 this.ui.rotateStructureBtn.classList.toggle('active', isRotatingStructure);
                 
                 this.ui.minimapContainer.style.display = minimapVisible ? 'block' : 'none';
-                this.ui.minimapToggle.textContent = minimapVisible ? 'Hide' : 'Show';
+                this.ui.minimapToggleMenuBtn.textContent = minimapVisible ? 'Hide Minimap' : 'Show Minimap';
                 this.ui.minimapFollow.textContent = minimapFollow ? 'Fixed' : 'Follow';
                 this.ui.minimapFollow.classList.toggle('active', minimapFollow);
 
