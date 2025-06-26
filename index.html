@@ -30,6 +30,31 @@
             width: 100%;
             margin-bottom: 10px;
             flex-shrink: 0;
+            position: relative;
+            left: 0;
+            bottom: 0;
+            z-index: 110;
+        }
+        #controls-panel.hidden #toggleControlsBtn {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            top: auto;
+            width: auto;
+            margin: 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 2000;
+        }
+        @media (max-width: 768px) {
+            #controls-panel.hidden #toggleControlsBtn {
+                left: 10px;
+                bottom: 10px;
+                width: 56px;
+                height: 56px;
+                font-size: 1.2em;
+                padding: 0;
+            }
         }
         #scene-container { flex-grow: 1; position: relative; }
         canvas { display: block; }
