@@ -30,21 +30,24 @@
             width: 100%;
             margin-bottom: 10px;
             flex-shrink: 0;
-            position: relative;
-            left: 0;
-            bottom: 0;
+            position: static !important;
+            left: auto !important;
+            bottom: auto !important;
+            top: auto !important;
             z-index: 110;
+            border-radius: 4px;
+            box-shadow: none;
         }
         #controls-panel.hidden #toggleControlsBtn {
-            position: fixed;
-            left: 16px;
-            bottom: 16px;
-            top: auto;
-            width: auto;
-            margin: 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            z-index: 2000;
+            position: fixed !important;
+            left: 16px !important;
+            bottom: 16px !important;
+            top: auto !important;
+            width: auto !important;
+            margin: 0 !important;
+            border-radius: 8px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+            z-index: 2000 !important;
         }
         #scene-container { flex-grow: 1; position: relative; }
         canvas { display: block; }
@@ -88,10 +91,24 @@
         .list-item:last-child { border-bottom: none; }
         .list-item.highlighted { background-color: #e0f7fa; }
         .del-btn { background: #fdd; border-color: #fbb; padding: 2px 6px; }
-        #status-bar { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; z-index: 10; }
+        #status-bar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; z-index: 3001; }
         #coords-bar { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 4px; font-family: monospace; z-index: 10; }
-        #minimap-container { position: absolute; top: 10px; left: 10px; width: 200px; height: 200px; background: rgba(0,0,0,0.8); border: 2px solid #ccc; border-radius: 8px; z-index: 10; }
-        #minimap-canvas { width: 100%; height: 100%; border-radius: 6px; }
+        #minimap-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            z-index: 10;
+        }
+        #minimap-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+        }
         .minimap-controls { position: absolute; bottom: 5px; left: 5px; right: 5px; display: flex; justify-content: space-between; }
         .minimap-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em; cursor: pointer; }
         .minimap-btn:hover { background: rgba(255,255,255,0.3); }
@@ -180,13 +197,106 @@
                 overflow: hidden !important;
             }
         }
+        @media (max-width: 600px) {
+            #minimap-container {
+                width: 100px !important;
+                height: 100px !important;
+            }
+            #edit-float-panel {
+                left: 0;
+                top: 120px;
+                transform: none;
+            }
+        }
+        #edit-float-panel {
+            position: fixed;
+            top: 60px;
+            right: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            padding: 12px 8px;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+        }
+        #edit-float-panel button {
+            margin: 4px 0;
+            min-width: 90px;
+            font-size: 1em;
+            color: rgb(0, 0, 0);
+        }
+        .edit-mode-controls-float {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        @media (max-width: 768px) {
+            #edit-float-panel {
+                left: 0;
+                top: 60%;
+                padding: 8px 4px;
+            }
+            #edit-float-panel button {
+                min-width: 70px;
+                font-size: 0.95em;
+            }
+        }
+        #editModeCycleBtnFloat {
+            margin: 4px 0;
+            min-width: 90px;
+            font-size: 1em;
+        }
+        #ascend-descend-panel {
+            position: fixed;
+            left: 0;
+            top: 120px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            padding: 12px 8px;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+        }
+        #ascend-descend-panel button {
+            min-width: 90px;
+            font-size: 1em;
+            margin: 4px 0;
+            color: rgb(0, 0, 0);
+        }
+        @media (max-width: 600px) {
+            #minimap-container {
+                width: 100px !important;
+                height: 100px !important;
+            }
+            #edit-float-panel {
+                top: 60px;
+                right: 10px;
+                left: auto;
+                transform: none;
+            }
+            #ascend-descend-panel {
+                left: 0;
+                top: 120px;
+                transform: none;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="controls-panel">
             <button id="fullscreenBtn" style="width:100%;margin-bottom:10px;">Full Screen</button>
-            <button id="toggleControlsBtn">Menu</button>
+            <button id="toggleControlsBtn" style="width:100%;margin-bottom:10px;">Hide/Show Menu</button>
             <h3>ROV Controls</h3>
             <div class="control-group">
                 <h4 class="collapsible">Flight Recorder</h4>
@@ -287,6 +397,14 @@
                 <button id="arrow-right" class="mobile-btn">▶</button>
                 <button id="arrow-down" class="mobile-btn">▼</button>
             </div>
+        </div>
+        <div id="edit-float-panel" style="display:none;">
+            <button id="editPathBtnFloat">Edit Path</button>
+            <button id="editModeCycleBtnFloat">Axis: Free</button>
+        </div>
+        <div id="ascend-descend-panel" style="display:none;">
+            <button id="ascendBtnMobile" style="font-size:1.2em;">Ascend ▲</button>
+            <button id="descendBtnMobile" style="font-size:1.2em;">Descend ▼</button>
         </div>
     </div>
 
@@ -1013,6 +1131,10 @@
                     arrowLeft: document.getElementById('arrow-left'),
                     arrowRight: document.getElementById('arrow-right'),
                     fullscreenBtn: document.getElementById('fullscreenBtn'),
+                    editPathBtnFloat: document.getElementById('editPathBtnFloat'),
+                    editModeCycleBtnFloat: document.getElementById('editModeCycleBtnFloat'),
+                    ascendBtnMobile: document.getElementById('ascendBtnMobile'),
+                    descendBtnMobile: document.getElementById('descendBtnMobile'),
                 };
 
                 this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
@@ -1046,6 +1168,12 @@
                 this.ui.editModeHorizontalBtn.addEventListener('click', () => this.handleEditModeChange('horizontal'));
                 this.ui.editModeVerticalBtn.addEventListener('click', () => this.handleEditModeChange('vertical'));
                 this.ui.fullscreenBtn.addEventListener('click', () => this.handleFullscreen());
+                this.ui.editPathBtnFloat.addEventListener('click', () => this.toggleEditMode());
+                this.ui.editModeCycleBtnFloat.addEventListener('click', () => this.cycleEditModeConstraint());
+                this.ui.ascendBtnMobile.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys['KeyR'] = true; });
+                this.ui.ascendBtnMobile.addEventListener('touchend', (e) => { e.preventDefault(); this.keys['KeyR'] = false; });
+                this.ui.descendBtnMobile.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys['KeyF'] = true; });
+                this.ui.descendBtnMobile.addEventListener('touchend', (e) => { e.preventDefault(); this.keys['KeyF'] = false; });
 
                 const bindTouch = (element, key) => {
                     element.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[key] = true; }, { passive: false });
@@ -1147,11 +1275,19 @@
                 const controlsPanel = document.getElementById('controls-panel');
                 controlsPanel.classList.toggle('hidden');
                 setTimeout(() => this.onWindowResize(), 300);
+                this.updateUI();
             }
             
             handleToggleMobileControls() {
                 this.state.mobileControlsVisible = !this.state.mobileControlsVisible;
                 this.updateUI(false);
+                // Also show/hide the ascend/descend panel
+                const ascendPanel = document.getElementById('ascend-descend-panel');
+                if (this.state.mobileControlsVisible && document.getElementById('controls-panel').classList.contains('hidden')) {
+                    ascendPanel.style.display = 'flex';
+                } else {
+                    ascendPanel.style.display = 'none';
+                }
             }
 
             handleRecord() {
@@ -1976,6 +2112,35 @@
                         ));
                     }
                 }
+                // Floating edit panel visibility and state
+                const floatPanel = document.getElementById('edit-float-panel');
+                const ascendPanel = document.getElementById('ascend-descend-panel');
+                if (document.getElementById('controls-panel').classList.contains('hidden')) {
+                    floatPanel.style.display = 'flex';
+                    // Only show ascend/descend if arrows are toggled on
+                    if (this.state.mobileControlsVisible) {
+                        ascendPanel.style.display = 'flex';
+                    } else {
+                        ascendPanel.style.display = 'none';
+                    }
+                    // Sync button states
+                    this.ui.editPathBtnFloat.classList.toggle('active', isEditingPath);
+                    // Update axis button label
+                    let axisLabel = 'Axis: ';
+                    if (editModeConstraint === 'free') axisLabel += 'Free';
+                    else if (editModeConstraint === 'horizontal') axisLabel += 'Horizontal';
+                    else if (editModeConstraint === 'vertical') axisLabel += 'Vertical';
+                    this.ui.editModeCycleBtnFloat.textContent = axisLabel;
+                } else {
+                    floatPanel.style.display = 'none';
+                    ascendPanel.style.display = 'none';
+                    this.ui.editPathBtnFloat.classList.remove('active');
+                }
+                // Hide original edit controls if menu is hidden
+                const propEditControls = document.getElementById('proportional-edit-controls');
+                if (propEditControls) {
+                    propEditControls.style.display = (isEditingPath && !document.getElementById('controls-panel').classList.contains('hidden')) ? 'block' : 'none';
+                }
             }
             
             updatePathVisuals(isDragging = false) {
@@ -2446,6 +2611,13 @@
                 } else {
                     this.ui.fullscreenBtn.textContent = 'Full Screen';
                 }
+            }
+
+            cycleEditModeConstraint() {
+                const modes = ['free', 'horizontal', 'vertical'];
+                let current = modes.indexOf(this.state.editModeConstraint);
+                current = (current + 1) % modes.length;
+                this.handleEditModeChange(modes[current]);
             }
         }
 
