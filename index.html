@@ -137,11 +137,40 @@
                 z-index: 110;
             }
         }
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+        :fullscreen #container, :fullscreen body, :fullscreen html {
+            width: 100vw !important;
+            height: 100vh !important;
+            min-height: 100vh !important;
+            min-width: 100vw !important;
+            overflow: hidden !important;
+        }
+        @media (max-width: 768px) {
+            html, body, #container {
+                width: 100vw !important;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                min-width: 100vw !important;
+                overflow: hidden !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="controls-panel">
+            <button id="fullscreenBtn" style="width:100%;margin-bottom:10px;">Full Screen</button>
             <button id="toggleControlsBtn">Menu</button>
             <h3>ROV Controls</h3>
             <div class="control-group">
@@ -200,6 +229,10 @@
                 <div class="collapsible-content">
                     <button id="deleteSelectedWaypointsBtn" disabled>Delete Selected</button>
                     <button id="cycleWaypointsBtn" disabled>Cycle Waypoints</button>
+                    <div class="teleport-container" style="display: inline-block;">
+                        <button id="teleportBtn" disabled>Teleport</button>
+                        <select id="teleport-dropdown" style="display: none;"></select>
+                    </div>
                     <div id="waypoint-list" class="list-container">None</div>
                     <div id="proportional-edit-controls" style="display:none; margin-top: 10px;">
                         <div class="edit-mode-controls" style="margin-top: 10px; margin-bottom: 10px;">
@@ -940,6 +973,8 @@
                     waypointList: document.getElementById('waypoint-list'),
                     deleteSelectedWaypointsBtn: document.getElementById('deleteSelectedWaypointsBtn'),
                     cycleWaypointsBtn: document.getElementById('cycleWaypointsBtn'),
+                    teleportBtn: document.getElementById('teleportBtn'),
+                    teleportDropdown: document.getElementById('teleport-dropdown'),
                     poiList: document.getElementById('poi-list'),
                     statusBar: document.getElementById('status-bar'),
                     coordsBar: document.getElementById('coords-bar'),
@@ -962,6 +997,7 @@
                     arrowDown: document.getElementById('arrow-down'),
                     arrowLeft: document.getElementById('arrow-left'),
                     arrowRight: document.getElementById('arrow-right'),
+                    fullscreenBtn: document.getElementById('fullscreenBtn'),
                 };
 
                 this.ui.recordBtn.addEventListener('click', () => this.handleRecord());
@@ -983,6 +1019,8 @@
                 this.ui.loadInput.addEventListener('change', (e) => this.loadData(e));
                 this.ui.deleteSelectedWaypointsBtn.addEventListener('click', () => this.handleDeleteSelectedWaypoints());
                 this.ui.cycleWaypointsBtn.addEventListener('click', () => this.toggleCycleWaypointsMode());
+                this.ui.teleportBtn.addEventListener('click', () => this.toggleTeleportDropdown());
+                this.ui.teleportDropdown.addEventListener('change', (e) => this.handleTeleport(e));
                 this.ui.playbackSpeed.addEventListener('input', (e) => this.updateSpeedDisplay(e.target.value));
                 this.ui.rovSpeed.addEventListener('input', (e) => this.handleRovSpeedChange(e.target.value));
                 this.ui.minimapToggle.addEventListener('click', () => this.toggleMinimap());
@@ -992,6 +1030,7 @@
                 this.ui.editModeFreeBtn.addEventListener('click', () => this.handleEditModeChange('free'));
                 this.ui.editModeHorizontalBtn.addEventListener('click', () => this.handleEditModeChange('horizontal'));
                 this.ui.editModeVerticalBtn.addEventListener('click', () => this.handleEditModeChange('vertical'));
+                this.ui.fullscreenBtn.addEventListener('click', () => this.handleFullscreen());
 
                 const bindTouch = (element, key) => {
                     element.addEventListener('touchstart', (e) => { e.preventDefault(); this.keys[key] = true; }, { passive: false });
@@ -1036,7 +1075,36 @@
             handleUndo() {
                 if (this.history.length > 0) {
                     const lastState = this.history.pop();
-                    this.path = lastState;
+                    // Restore path
+                    this.path = lastState.path.map(p => p.clone());
+                    // Remove old POI meshes
+                    this.pois.forEach(poi => {
+                        if (poi.mesh.parent) {
+                            poi.mesh.parent.remove(poi.mesh);
+                        }
+                    });
+                    // Restore POIs
+                    this.pois = lastState.pois.map(p => {
+                        const mesh = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.5),
+                            new THREE.MeshBasicMaterial({ color: p.onStructure ? 0xff0000 : 0xffeb3b })
+                        );
+                        if (p.onStructure) {
+                            this.structure.add(mesh);
+                            mesh.position.copy(p.pos);
+                        } else {
+                            this.scene.add(mesh);
+                            mesh.position.copy(p.pos);
+                        }
+                        return {
+                            pos: p.pos.clone(),
+                            note: p.note,
+                            mesh: mesh,
+                            triggered: false,
+                            onStructure: p.onStructure,
+                            waypointIndex: p.waypointIndex
+                        };
+                    });
                     this.deselectPoint();
                     this.updatePathVisuals();
                     this.updateUI();
@@ -1047,8 +1115,15 @@
             }
 
             saveStateForUndo() {
-                const currentState = this.path.map(p => p.clone());
-                this.history.push(currentState);
+                // Save both path and POIs (deep copy)
+                const pathCopy = this.path.map(p => p.clone());
+                const poisCopy = this.pois.map(p => ({
+                    pos: p.pos.clone(),
+                    note: p.note,
+                    onStructure: p.onStructure,
+                    waypointIndex: p.waypointIndex
+                }));
+                this.history.push({ path: pathCopy, pois: poisCopy });
                 this.redoStack = [];
                 this.updateUI();
             }
@@ -1252,6 +1327,32 @@
                 this.updateUI();
             }
 
+            toggleTeleportDropdown() {
+                const dropdown = this.ui.teleportDropdown;
+                if (dropdown.style.display === 'none') {
+                    dropdown.style.display = 'inline-block';
+                    dropdown.innerHTML = '<option value="-1">Select Waypoint</option>';
+                    this.path.forEach((p, i) => {
+                        const option = document.createElement('option');
+                        option.value = i;
+                        option.textContent = `Waypoint ${i}`;
+                        dropdown.appendChild(option);
+                    });
+                } else {
+                    dropdown.style.display = 'none';
+                }
+            }
+
+            handleTeleport(event) {
+                const waypointIndex = parseInt(event.target.value, 10);
+                if (waypointIndex >= 0) {
+                    const waypoint = this.path[waypointIndex];
+                    this.rov.position.copy(waypoint);
+                    this.updateStatus(`Teleported to Waypoint ${waypointIndex}`);
+                    this.ui.teleportDropdown.style.display = 'none';
+                }
+            }
+
             handleDeleteSelectedWaypoints() {
                 const checkboxes = this.ui.waypointList.querySelectorAll('input[type="checkbox"]:checked');
                 const indicesToDelete = [];
@@ -1305,7 +1406,7 @@
                         const pointIndex = this.editHelpers.children.indexOf(newHovered);
                         if (isTouchEvent) {
                             if (this.interactionData.hoveredHelper === newHovered) {
-                                // Second tap on the same helper: select it
+                                // Second tap on the same helper: select it and enable dragging
                                 this.selectPoint(pointIndex);
                                 this.interactionData.draggedPointIndex = pointIndex;
                                 this.saveStateForUndo();
@@ -1453,6 +1554,19 @@
                 const note = prompt("Enter a note for this POI:", "");
                 if (note === null) return;
 
+                // --- Associate with nearest waypoint if recording ---
+                let waypointIndex = null;
+                if (this.state.isRecording && this.path.length > 0) {
+                    let minDist = Infinity;
+                    for (let i = 0; i < this.path.length; i++) {
+                        const dist = position.distanceTo(this.path[i]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            waypointIndex = i;
+                        }
+                    }
+                }
+
                 const poiMesh = new THREE.Mesh(
                     new THREE.SphereGeometry(0.5),
                     new THREE.MeshBasicMaterial({ color: onStructure ? 0xff0000 : 0xffeb3b })
@@ -1462,7 +1576,8 @@
                     note: note,
                     mesh: poiMesh,
                     triggered: false,
-                    onStructure: onStructure
+                    onStructure: onStructure,
+                    waypointIndex: waypointIndex
                 };
 
                 if (onStructure) {
@@ -1470,6 +1585,11 @@
                     const localPosition = this.structure.worldToLocal(position.clone());
                     poiMesh.position.copy(localPosition);
                     poiData.pos = localPosition;
+                } else if (waypointIndex !== null) {
+                    // Attach to waypoint position
+                    this.scene.add(poiMesh);
+                    poiMesh.position.copy(this.path[waypointIndex]);
+                    poiData.pos = this.path[waypointIndex].clone();
                 } else {
                     this.scene.add(poiMesh);
                     poiMesh.position.copy(position);
@@ -1558,6 +1678,13 @@
             
                     this.editHelpers.children[i].position.copy(this.path[i]);
                 }
+                // --- Update POIs attached to waypoints ---
+                this.pois.forEach(poi => {
+                    if (typeof poi.waypointIndex === 'number' && poi.waypointIndex >= 0 && poi.waypointIndex < this.path.length && !poi.onStructure) {
+                        poi.mesh.position.copy(this.path[poi.waypointIndex]);
+                        poi.pos = this.path[poi.waypointIndex].clone();
+                    }
+                });
                 this.updatePathVisuals(true);
             }
 
@@ -1760,6 +1887,7 @@
                 this.ui.resumeBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isRotatingStructure || isEditingPath;
                 this.ui.editPathBtn.disabled = isInteracting || !hasMultiplePoints || isRecording || isPlaying || isRotatingStructure;
                 this.ui.cycleWaypointsBtn.disabled = isInteracting || !isEditingPath;
+                this.ui.teleportBtn.disabled = isInteracting || !hasPath;
                 this.ui.undoBtn.disabled = this.history.length === 0 || isInteracting;
                 this.ui.saveBtn.disabled = isInteracting || !(hasMultiplePoints || this.pois.length > 0) || isRotatingStructure;
                 this.ui.loadBtn.disabled = isInteracting || isRecording || isPlaying || isRotatingStructure;
@@ -1770,6 +1898,7 @@
                 this.ui.markOnStructureBtn.disabled = isInteracting || isRotatingStructure;
                 this.ui.rovSpeed.disabled = isInteracting || isPlaying || isRotatingStructure;
                 this.ui.toggleMobileControlsBtn.disabled = isInteracting;
+                this.ui.fullscreenBtn.disabled = isInteracting;
 
                 this.ui.recordBtn.textContent = isRecording ? 'Pause' : 'Record';
                 this.ui.playBtn.textContent = isPlaying && !isReversed ? (isPlaybackPaused ? 'Resume' : 'Pause') : 'Play';
@@ -2149,6 +2278,13 @@
                     if (!isNaN(newX) && !isNaN(newY) && !isNaN(newZ)) {
                         this.saveStateForUndo();
                         this.path[index].set(newX, newY, newZ);
+                        // --- Update POIs attached to this waypoint ---
+                        this.pois.forEach(poi => {
+                            if (poi.waypointIndex === index && !poi.onStructure) {
+                                poi.mesh.position.copy(this.path[index]);
+                                poi.pos = this.path[index].clone();
+                            }
+                        });
                         this.updatePathVisuals();
                     }
                     
@@ -2189,7 +2325,8 @@
                     pois: this.pois.map(p => ({
                         pos: [p.pos.x, p.pos.y, p.pos.z],
                         note: p.note,
-                        onStructure: p.onStructure
+                        onStructure: p.onStructure,
+                        waypointIndex: p.waypointIndex
                     }))
                 };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2236,7 +2373,8 @@
                                      note: p.note,
                                      mesh: mesh,
                                      triggered: false,
-                                     onStructure: onStructure
+                                     onStructure: onStructure,
+                                     waypointIndex: typeof p.waypointIndex === 'number' ? p.waypointIndex : null
                                  };
                              });
                         }
@@ -2264,6 +2402,35 @@
             toggleMinimapFollow() {
                 this.state.minimapFollow = !this.state.minimapFollow;
                 this.updateUI();
+            }
+
+            handleFullscreen() {
+                const elem = document.documentElement;
+                if (!document.fullscreenElement) {
+                    if (elem.requestFullscreen) {
+                        elem.requestFullscreen();
+                    } else if (elem.webkitRequestFullscreen) { /* Safari */
+                        elem.webkitRequestFullscreen();
+                    } else if (elem.msRequestFullscreen) { /* IE11 */
+                        elem.msRequestFullscreen();
+                    }
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) { /* Safari */
+                        document.webkitExitFullscreen();
+                    } else if (document.msExitFullscreen) { /* IE11 */
+                        document.msExitFullscreen();
+                    }
+                }
+            }
+
+            updateFullscreenButton() {
+                if (document.fullscreenElement) {
+                    this.ui.fullscreenBtn.textContent = 'Exit Full Screen';
+                } else {
+                    this.ui.fullscreenBtn.textContent = 'Full Screen';
+                }
             }
         }
 
